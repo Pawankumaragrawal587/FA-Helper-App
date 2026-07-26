@@ -212,6 +212,16 @@ function createLog(level: LogLevel, message: string): UiLogEntry {
   }
 }
 
+function getHistoricalPriceFileSymbol(fileName: string): string | null {
+  const underscoreIndex = fileName.indexOf('_')
+  if (underscoreIndex <= 0) {
+    return null
+  }
+
+  const symbol = fileName.slice(0, underscoreIndex).trim().toUpperCase()
+  return symbol || null
+}
+
 function buildAssessmentYearLabel(startYear: number): string {
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, '0')}`
 }
@@ -357,20 +367,24 @@ function UploadFieldCard({
 
 function FilePicker({
   file,
+  displayText,
   onChange,
   buttonLabel = 'Choose file',
   compact = false,
+  multiple = false,
 }: {
   file: File | null
+  displayText?: string
   onChange: (event: ChangeEvent<HTMLInputElement>) => void
   buttonLabel?: string
   compact?: boolean
+  multiple?: boolean
 }) {
   return (
     <label className={`file-picker ${compact ? 'compact' : ''}`}>
       <span className="file-picker-button">{buttonLabel}</span>
-      <span className="file-picker-text">{file ? file.name : 'No file chosen'}</span>
-      <input type="file" accept=".csv,text/csv" onChange={onChange} />
+      <span className="file-picker-text">{displayText ?? (file ? file.name : 'No file chosen')}</span>
+      <input type="file" accept=".csv,text/csv" multiple={multiple} onChange={onChange} />
     </label>
   )
 }
@@ -379,12 +393,22 @@ function SymbolHistoricalPriceUploadCard({
   symbols,
   filesBySymbol,
   onChangeForSymbol,
+  bulkFileCount,
+  onBulkChange,
 }: {
   symbols: string[]
   filesBySymbol: Record<string, File | null>
   onChangeForSymbol: (symbol: string) => (event: ChangeEvent<HTMLInputElement>) => void
+  bulkFileCount: number
+  onBulkChange: (event: ChangeEvent<HTMLInputElement>) => void
 }) {
   const selectedCount = symbols.filter((symbol) => filesBySymbol[symbol]).length
+  const bulkSelectionLabel =
+    bulkFileCount === 0
+      ? 'No files chosen'
+      : bulkFileCount === 1
+        ? '1 file selected'
+        : `${bulkFileCount} files selected`
 
   return (
     <section className="symbol-upload-panel">
@@ -408,20 +432,51 @@ function SymbolHistoricalPriceUploadCard({
           <span>Select the IBKR transactions CSV first to discover symbols.</span>
         </div>
       ) : (
-        <div className="symbol-upload-list">
-          {symbols.map((symbol) => {
-            const file = filesBySymbol[symbol] ?? null
+        <div className="symbol-upload-split">
+          <div className="symbol-upload-column">
+            <span className="summary-label">Per symbol upload</span>
+            <div className="symbol-upload-list">
+              {symbols.map((symbol) => {
+                const file = filesBySymbol[symbol] ?? null
 
-            return (
-              <label key={symbol} className="symbol-upload-row">
-                <div className="symbol-upload-copy">
-                  <strong>{symbol}</strong>
-                  <span>{file ? `${file.name} (${formatFileSize(file.size)})` : 'No file selected yet.'}</span>
-                </div>
-                <FilePicker file={file} onChange={onChangeForSymbol(symbol)} compact />
-              </label>
-            )
-          })}
+                return (
+                  <label key={symbol} className="symbol-upload-row">
+                    <div className="symbol-upload-copy">
+                      <strong>{symbol}</strong>
+                      <span>
+                        {file ? `${file.name} (${formatFileSize(file.size)})` : 'No file selected yet.'}
+                      </span>
+                    </div>
+                    <FilePicker file={file} onChange={onChangeForSymbol(symbol)} compact />
+                  </label>
+                )
+              })}
+            </div>
+          </div>
+
+          <div className="symbol-upload-column">
+            <div className="bulk-upload-card">
+              <span className="summary-label">Bulk upload all historical files</span>
+              <p className="upload-card-helper">
+                Expected filename structure: <code>SYMBOL_anything.csv</code>. The text before the
+                first underscore is treated as the symbol, for example{' '}
+                <code>SHOP_HistoricalDataXYZ.csv</code> maps to <code>SHOP</code>.
+              </p>
+              <FilePicker
+                file={null}
+                displayText={bulkSelectionLabel}
+                onChange={onBulkChange}
+                buttonLabel="Choose files"
+                multiple
+              />
+              <div className="upload-card-meta">
+                <span>
+                  Matched files will automatically fill the symbol slots on the left. You can still
+                  replace any symbol individually afterwards.
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
     </section>
@@ -1595,6 +1650,7 @@ function App() {
   const [selectedHistoricalPriceFilesBySymbol, setSelectedHistoricalPriceFilesBySymbol] = useState<
     Record<string, File | null>
   >({})
+  const [selectedHistoricalPriceBulkFiles, setSelectedHistoricalPriceBulkFiles] = useState<File[]>([])
   const [selectedExchangeRateFile, setSelectedExchangeRateFile] = useState<File | null>(null)
   const [parsedIbkrFile, setParsedIbkrFile] = useState<ParsedIbkrFile | null>(null)
   const [parsedSalesFile, setParsedSalesFile] = useState<ParsedShareworksFile | null>(null)
@@ -1965,6 +2021,7 @@ function App() {
     setParsedHistoricalPriceFile(null)
     setSelectedIbkrFile(file ?? null)
     setSelectedHistoricalPriceFilesBySymbol({})
+    setSelectedHistoricalPriceBulkFiles([])
 
     if (!file) {
       setLogs((existingLogs) =>
@@ -2070,6 +2127,68 @@ function App() {
           : []),
       ])
     }
+  }
+
+  function handleHistoricalPriceBulkFilesSelect(event: ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(event.target.files ?? [])
+    const symbolSet = new Set(ibkrSymbols)
+    const nextFilesBySymbol = { ...selectedHistoricalPriceFilesBySymbol }
+    const ignoredFileNames: string[] = []
+    const duplicateSymbols = new Set<string>()
+    const matchedSymbols = new Set<string>()
+
+    setGeneratedBroker(null)
+    setParsedHistoricalPriceFile(null)
+    setSelectedHistoricalPriceBulkFiles(files)
+
+    files.forEach((file) => {
+      const symbol = getHistoricalPriceFileSymbol(file.name)
+
+      if (!symbol || !symbolSet.has(symbol)) {
+        ignoredFileNames.push(file.name)
+        return
+      }
+
+      if (matchedSymbols.has(symbol) || nextFilesBySymbol[symbol]) {
+        duplicateSymbols.add(symbol)
+      }
+
+      nextFilesBySymbol[symbol] = file
+      matchedSymbols.add(symbol)
+    })
+
+    setSelectedHistoricalPriceFilesBySymbol(nextFilesBySymbol)
+    setLogs((existingLogs) => [
+      ...existingLogs.filter(
+        (entry) =>
+          !entry.message.startsWith('Selected bulk historical price files') &&
+          !entry.message.startsWith('Bulk historical file upload'),
+      ),
+      ...(files.length > 0
+        ? [
+            createLog(
+              'info',
+              `Selected bulk historical price files: matched ${matchedSymbols.size} symbol(s) from ${files.length} file(s). Expected format: "SYMBOL_anything.csv".`,
+            ),
+          ]
+        : []),
+      ...(ignoredFileNames.length > 0
+        ? [
+            createLog(
+              'warning',
+              `Bulk historical file upload ignored ${ignoredFileNames.length} file(s) because the symbol prefix before "_" was missing or did not match the discovered IBKR symbols: ${ignoredFileNames.join(', ')}.`,
+            ),
+          ]
+        : []),
+      ...(duplicateSymbols.size > 0
+        ? [
+            createLog(
+              'warning',
+              `Bulk historical file upload received multiple files for ${[...duplicateSymbols].join(', ')}. The last matching file was kept for each symbol.`,
+            ),
+          ]
+        : []),
+    ])
   }
 
   function handleExchangeRateFileSelect(event: ChangeEvent<HTMLInputElement>) {
@@ -2216,6 +2335,7 @@ function App() {
     setSelectedReleasesFile(null)
     setSelectedHistoricalPriceFile(null)
     setSelectedHistoricalPriceFilesBySymbol({})
+    setSelectedHistoricalPriceBulkFiles([])
     setSelectedExchangeRateFile(null)
     setParsedIbkrFile(null)
     setParsedSalesFile(null)
@@ -2229,7 +2349,7 @@ function App() {
               'info',
               nextBroker === 'shareworks'
                 ? 'Broker selected: Shareworks. Upload releases, long-share sales, historical TEAM price, and USD/INR rate CSV files next.'
-                : 'Broker selected: IBKR. Upload the consolidated transactions CSV first, then upload one historical price CSV for each discovered symbol plus the USD/INR rate CSV.',
+                : 'Broker selected: IBKR. Upload the consolidated transactions CSV first, then upload historical price CSVs per symbol or in bulk using filenames like "SYMBOL_anything.csv", plus the USD/INR rate CSV.',
             ),
           ]
         : [],
@@ -2556,6 +2676,8 @@ function App() {
                       symbols={ibkrSymbols}
                       filesBySymbol={selectedHistoricalPriceFilesBySymbol}
                       onChangeForSymbol={handleHistoricalPriceFileSelectForSymbol}
+                      bulkFileCount={selectedHistoricalPriceBulkFiles.length}
+                      onBulkChange={handleHistoricalPriceBulkFilesSelect}
                     />
                   </>
                 ) : null}
@@ -2585,7 +2707,7 @@ function App() {
             {!hasGeneratedReport ? (
               <p className="status-message">
                 {isIbkrSelected
-                  ? 'Select IBKR, upload the transactions file to discover symbols, add one historical price CSV per symbol, then click `Generate report`.'
+                  ? 'Select IBKR, upload the transactions file to discover symbols, then either upload historical price CSVs per symbol or bulk upload files named like `SYMBOL_anything.csv` before clicking `Generate report`.'
                   : 'Select a broker, upload the required CSV files, adjust the assessment year if needed, and then click `Generate report`.'}
               </p>
             ) : null}

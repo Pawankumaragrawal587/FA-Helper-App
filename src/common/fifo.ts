@@ -18,22 +18,31 @@ function roundCurrency(value: number): number {
 }
 
 export function buildFifoReport(transactions: NormalizedTransaction[]): FifoReport {
-  const acquisitionQueue: QueueLot[] = transactions
-    .filter((transaction) => transaction.transactionType === 'ACQUIRE')
-    .sort(sortByDateAndRow)
-    .map((transaction) => ({
-      transaction,
-      remainingShares: transaction.shares,
-    }))
+  const sortedTransactions = [...transactions].sort(sortByDateAndRow)
+  const acquisitionQueuesBySymbol = new Map<string, QueueLot[]>()
 
-  const sellTransactions = transactions
-    .filter((transaction) => transaction.transactionType === 'SELL')
-    .sort(sortByDateAndRow)
+  sortedTransactions
+    .filter((transaction) => transaction.transactionType === 'ACQUIRE')
+    .forEach((transaction) => {
+      const queue = acquisitionQueuesBySymbol.get(transaction.stockSymbol) ?? []
+
+      queue.push({
+        transaction,
+        remainingShares: transaction.shares,
+      })
+
+      acquisitionQueuesBySymbol.set(transaction.stockSymbol, queue)
+    })
+
+  const sellTransactions = sortedTransactions.filter(
+    (transaction) => transaction.transactionType === 'SELL',
+  )
 
   const matchedLots: FifoMatchedLot[] = []
   let unmatchedSellShares = 0
 
   sellTransactions.forEach((sellTransaction) => {
+    const acquisitionQueue = acquisitionQueuesBySymbol.get(sellTransaction.stockSymbol) ?? []
     let sharesRemainingToMatch = sellTransaction.shares
 
     while (sharesRemainingToMatch > 0 && acquisitionQueue.length > 0) {
@@ -79,7 +88,9 @@ export function buildFifoReport(transactions: NormalizedTransaction[]): FifoRepo
     }
   })
 
-  const openHoldings: OpenHolding[] = acquisitionQueue
+  const openHoldings: OpenHolding[] = [...acquisitionQueuesBySymbol.values()]
+    .flat()
+    .sort((left, right) => sortByDateAndRow(left.transaction, right.transaction))
     .filter((lot) => lot.remainingShares > 0)
     .map((lot) => ({
       id: `${lot.transaction.id}-open`,

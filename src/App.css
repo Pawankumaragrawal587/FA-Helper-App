@@ -616,11 +616,24 @@ tfoot td {
   gap: 12px;
 }
 
+.symbol-upload-split {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+
 .symbol-upload-panel {
   grid-column: 1 / -1;
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.symbol-upload-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
 }
 
 .symbol-upload-row {
@@ -655,6 +668,25 @@ tfoot td {
 .symbol-upload-copy span {
   font-size: 13px;
   overflow-wrap: anywhere;
+}
+
+.bulk-upload-card {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100%;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--surface);
+  box-sizing: border-box;
+}
+
+.bulk-upload-card code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono',
+    'Courier New', monospace;
+  font-size: 0.95em;
 }
 
 .file-picker {
@@ -760,6 +792,10 @@ tfoot td {
   }
 
   .symbol-upload-row {
+    grid-template-columns: 1fr;
+  }
+
+  .symbol-upload-split {
     grid-template-columns: 1fr;
   }
 

@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<coverage generated="1785076253317" clover="3.2.0">
-  <project timestamp="1785076253317" name="All files">
-    <metrics statements="307" coveredstatements="279" conditionals="166" coveredconditionals="135" methods="72" coveredmethods="72" elements="545" coveredelements="486" complexity="0" loc="307" ncloc="307" packages="3" files="7" classes="7"/>
+<coverage generated="1785078531360" clover="3.2.0">
+  <project timestamp="1785078531360" name="All files">
+    <metrics statements="313" coveredstatements="285" conditionals="170" coveredconditionals="138" methods="73" coveredmethods="73" elements="556" coveredelements="496" complexity="0" loc="313" ncloc="313" packages="3" files="7" classes="7"/>
     <package name="common">
-      <metrics statements="105" coveredstatements="98" conditionals="47" coveredconditionals="40" methods="27" coveredmethods="27"/>
+      <metrics statements="111" coveredstatements="104" conditionals="51" coveredconditionals="43" methods="28" coveredmethods="28"/>
       <file name="exchangeRates.ts" path="/Users/pagrawal2/Pawan/ITR-FA-Manager/FA-Helper-App/src/common/exchangeRates.ts">
         <metrics statements="48" coveredstatements="44" conditionals="25" coveredconditionals="20" methods="12" coveredmethods="12"/>
         <line num="21" count="26" type="stmt"/>
@@ -56,39 +56,45 @@
         <line num="150" count="2" type="stmt"/>
       </file>
       <file name="fifo.ts" path="/Users/pagrawal2/Pawan/ITR-FA-Manager/FA-Helper-App/src/common/fifo.ts">
-        <metrics statements="32" coveredstatements="32" conditionals="8" coveredconditionals="8" methods="9" coveredmethods="9"/>
-        <line num="9" count="8" type="cond" truecount="2" falsecount="0"/>
-        <line num="10" count="7" type="stmt"/>
+        <metrics statements="38" coveredstatements="38" conditionals="12" coveredconditionals="11" methods="10" coveredmethods="10"/>
+        <line num="9" count="23" type="cond" truecount="2" falsecount="0"/>
+        <line num="10" count="22" type="stmt"/>
         <line num="13" count="1" type="stmt"/>
-        <line num="17" count="58" type="stmt"/>
-        <line num="21" count="3" type="stmt"/>
-        <line num="22" count="16" type="stmt"/>
-        <line num="24" count="6" type="stmt"/>
-        <line num="29" count="3" type="stmt"/>
-        <line num="30" count="16" type="stmt"/>
-        <line num="33" count="3" type="stmt"/>
-        <line num="34" count="3" type="stmt"/>
-        <line num="36" count="3" type="stmt"/>
-        <line num="37" count="8" type="stmt"/>
-        <line num="39" count="8" type="cond" truecount="2" falsecount="0"/>
-        <line num="40" count="11" type="stmt"/>
-        <line num="41" count="11" type="stmt"/>
-        <line num="42" count="11" type="stmt"/>
-        <line num="43" count="11" type="stmt"/>
-        <line num="44" count="11" type="stmt"/>
-        <line num="45" count="11" type="stmt"/>
-        <line num="46" count="11" type="stmt"/>
-        <line num="48" count="11" type="stmt"/>
-        <line num="69" count="11" type="stmt"/>
-        <line num="70" count="11" type="stmt"/>
-        <line num="72" count="11" type="cond" truecount="2" falsecount="0"/>
-        <line num="73" count="4" type="stmt"/>
-        <line num="77" count="8" type="cond" truecount="2" falsecount="0"/>
-        <line num="78" count="1" type="stmt"/>
-        <line num="82" count="3" type="stmt"/>
-        <line num="83" count="2" type="stmt"/>
-        <line num="84" count="2" type="stmt"/>
-        <line num="96" count="3" type="stmt"/>
+        <line num="17" count="75" type="stmt"/>
+        <line num="21" count="4" type="stmt"/>
+        <line num="22" count="4" type="stmt"/>
+        <line num="24" count="4" type="stmt"/>
+        <line num="25" count="21" type="stmt"/>
+        <line num="27" count="9" type="cond" truecount="2" falsecount="0"/>
+        <line num="29" count="9" type="stmt"/>
+        <line num="34" count="9" type="stmt"/>
+        <line num="37" count="4" type="stmt"/>
+        <line num="38" count="21" type="stmt"/>
+        <line num="41" count="4" type="stmt"/>
+        <line num="42" count="4" type="stmt"/>
+        <line num="44" count="4" type="stmt"/>
+        <line num="45" count="10" type="cond" truecount="1" falsecount="1"/>
+        <line num="46" count="10" type="stmt"/>
+        <line num="48" count="10" type="cond" truecount="2" falsecount="0"/>
+        <line num="49" count="14" type="stmt"/>
+        <line num="50" count="14" type="stmt"/>
+        <line num="51" count="14" type="stmt"/>
+        <line num="52" count="14" type="stmt"/>
+        <line num="53" count="14" type="stmt"/>
+        <line num="54" count="14" type="stmt"/>
+        <line num="55" count="14" type="stmt"/>
+        <line num="57" count="14" type="stmt"/>
+        <line num="78" count="14" type="stmt"/>
+        <line num="79" count="14" type="stmt"/>
+        <line num="81" count="14" type="cond" truecount="2" falsecount="0"/>
+        <line num="82" count="5" type="stmt"/>
+        <line num="86" count="10" type="cond" truecount="2" falsecount="0"/>
+        <line num="87" count="1" type="stmt"/>
+        <line num="91" count="4" type="stmt"/>
+        <line num="93" count="1" type="stmt"/>
+        <line num="94" count="4" type="stmt"/>
+        <line num="95" count="4" type="stmt"/>
+        <line num="107" count="4" type="stmt"/>
       </file>
       <file name="historicalPrices.ts" path="/Users/pagrawal2/Pawan/ITR-FA-Manager/FA-Helper-App/src/common/historicalPrices.ts">
         <metrics statements="25" coveredstatements="22" conditionals="14" coveredconditionals="12" methods="6" coveredmethods="6"/>

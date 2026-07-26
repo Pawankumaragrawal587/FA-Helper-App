@@ -18,7 +18,7 @@ function parseUsdAmount(value: string): number {
 
 function parseUsDate(value: string): string {
   const trimmed = value.trim()
-  const match = trimmed.match(/^(\d{2})\/(\d{2})\/(\d{4})$/)
+  const match = trimmed.match(/^(\d{2})[/-](\d{2})[/-](\d{4})$/)
 
   if (!match) {
     throw new Error(`Unable to parse historical price date "${value}".`)

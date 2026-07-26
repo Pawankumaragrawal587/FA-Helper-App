@@ -28,7 +28,7 @@ describe('parseHistoricalPriceCsv', () => {
 
   it('preserves the provided stock symbol and ignores incomplete rows', () => {
     const csv = `Date,Close/Last,Volume,Open,High,Low
-07/24/2026,$86.88,4166916,$81.43,$87.09,$81.43
+07-24-2026,$86.88,4166916,$81.43,$87.09,$81.43
 07/25/2026,$87.10,4000000,$86.00,,$85.50
 `
 
