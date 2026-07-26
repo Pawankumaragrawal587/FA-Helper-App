@@ -1,13 +1,15 @@
 import Papa from 'papaparse'
 
 import type {
+  IbkrDividendRecord,
   IbkrTransactionRecord,
   IgnoredRowDetail,
   NormalizedTransaction,
   ParsedIbkrFile,
 } from '../types'
 
-const SUPPORTED_TRANSACTION_TYPES = new Set(['Buy', 'Sell'])
+const SUPPORTED_TRADE_TRANSACTION_TYPES = new Set(['Buy', 'Sell'])
+const DIVIDEND_TRANSACTION_TYPE = 'Dividend'
 
 function getCell(row: string[], index: number): string {
   return row[index]?.trim() ?? ''
@@ -82,6 +84,18 @@ function mapRowToIbkrRecord(row: string[], sourceRowNumber: number): IbkrTransac
   }
 }
 
+function mapRowToIbkrDividendRecord(row: string[], sourceRowNumber: number): IbkrDividendRecord {
+  return {
+    broker: 'ibkr',
+    stockSymbol: getCell(row, 6),
+    sourceRowNumber,
+    tradeDate: parseTradeDate(getCell(row, 2)),
+    description: getCell(row, 4),
+    transactionTypeLabel: getCell(row, 5),
+    netAmountUsd: parseNumber(getCell(row, 12), 'net amount'),
+  }
+}
+
 export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
   const result = Papa.parse<string[]>(csvText, {
     skipEmptyLines: true,
@@ -104,6 +118,7 @@ export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
   validateHeaderRow(rows[headerIndex])
 
   const parsedRows: IbkrTransactionRecord[] = []
+  const dividendRows: IbkrDividendRecord[] = []
   const ignoredRows: IgnoredRowDetail[] = []
 
   rows.slice(headerIndex + 1).forEach((row, index) => {
@@ -116,7 +131,12 @@ export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
     const transactionTypeLabel = getCell(row, 5)
     const symbol = getCell(row, 6)
 
-    if (!SUPPORTED_TRANSACTION_TYPES.has(transactionTypeLabel)) {
+    if (transactionTypeLabel === DIVIDEND_TRANSACTION_TYPE) {
+      dividendRows.push(mapRowToIbkrDividendRecord(row, sourceRowNumber))
+      return
+    }
+
+    if (!SUPPORTED_TRADE_TRANSACTION_TYPES.has(transactionTypeLabel)) {
       ignoredRows.push(
         buildIgnoredRowDetail(row, sourceRowNumber, 'Unsupported IBKR transaction type'),
       )
@@ -140,6 +160,7 @@ export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
   return {
     reportName: 'IBKR Transaction History',
     rows: parsedRows,
+    dividendRows,
     uniqueSymbols,
     ignoredRowCount: ignoredRows.length,
     ignoredRows,

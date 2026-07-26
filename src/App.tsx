@@ -7,6 +7,7 @@ import releasesSampleCsv from '../sample/RSU Releases.sample.csv?raw'
 import salesSampleCsv from '../sample/Sales - Long Shares.sample.csv?raw'
 
 import './App.css'
+import { buildDividendIncomeRows } from './common/dividendIncome'
 import { buildFifoReport } from './common/fifo'
 import {
   getCapitalGainsExchangeRate,
@@ -18,6 +19,7 @@ import { deriveIbkrTransactions, parseIbkrTransactionsCsv } from './ibkr/parser'
 import { parseShareworksCsv } from './shareworks/parser'
 import { deriveReleaseTransactions, parseShareworksReleasesCsv } from './shareworks/releases'
 import { deriveLongShareSaleTransactions } from './shareworks/transform'
+import type { DividendIncomeRow } from './common/dividendIncome'
 import type {
   BrokerType,
   ExchangeRateRow,
@@ -38,7 +40,7 @@ const BROKER_OPTIONS: Array<{ value: BrokerType; label: string }> = [
 ]
 
 type LogLevel = 'info' | 'warning' | 'error'
-type ReportTabId = 'overview' | 'faA3' | 'capitalGains'
+type ReportTabId = 'overview' | 'faA3' | 'capitalGains' | 'dividendIncome'
 type AppPageId = 'landing' | 'builder' | 'samples'
 
 interface CsvColumn<T> {
@@ -107,6 +109,10 @@ interface ScheduleFaRow {
   sellFxRate: number | null
   sellFxRateDate: string | null
   sellAmountInr: number | null
+  dividendReceivedUsd: number
+  dividendFxRate: string | null
+  dividendFxDate: string | null
+  dividendReceivedInr: number
   maxPricePerShareUsd: number | null
   maxPriceDate: string | null
   maxFxRate: number | null
@@ -736,7 +742,7 @@ function buildIbkrParseLogs(
   const logs: UiLogEntry[] = [
     createLog(
       'info',
-      `Loaded "${ibkrFileName}" with ${parsedIbkrFile.rows.length} IBKR buy/sell rows across ${parsedIbkrFile.uniqueSymbols.length} symbol(s).`,
+      `Loaded "${ibkrFileName}" with ${parsedIbkrFile.rows.length} IBKR buy/sell row(s) and ${parsedIbkrFile.dividendRows.length} dividend row(s) across ${parsedIbkrFile.uniqueSymbols.length} traded symbol(s).`,
     ),
     createLog(
       'info',
@@ -760,7 +766,7 @@ function buildIbkrParseLogs(
     logs.push(
       createLog(
         'warning',
-        `Ignored ${parsedIbkrFile.ignoredRowCount} IBKR row(s) that were not buy/sell trades, such as dividends, withholding, or cash movements.`,
+        `Ignored ${parsedIbkrFile.ignoredRowCount} IBKR row(s) that were not used for trades or dividends, such as withholding or cash movements.`,
       ),
     )
 
@@ -1133,6 +1139,91 @@ function CapitalGainsTable({
   )
 }
 
+function DividendIncomeTable({
+  rows,
+}: {
+  rows: DividendIncomeRow[]
+}) {
+  const totalDividendAmountUsd = sumBy(rows, (row) => row.dividendAmountUsd)
+  const totalDividendAmountInr = sumBy(rows, (row) => row.dividendAmountInr ?? 0)
+  const exportColumns: CsvColumn<DividendIncomeRow>[] = [
+    { header: 'Symbol', value: (row) => row.stockSymbol },
+    { header: 'Dividend Date', value: (row) => row.dividendDate },
+    { header: 'Description', value: (row) => row.description },
+    { header: 'Dividend Amount USD', value: (row) => row.dividendAmountUsd },
+    { header: 'Dividend FX Rate', value: (row) => row.fxRate },
+    { header: 'Dividend FX Date', value: (row) => row.fxRateDate },
+    { header: 'Dividend Amount INR', value: (row) => row.dividendAmountInr },
+  ]
+
+  return (
+    <section className="transaction-card">
+      <div className="card-header">
+        <div>
+          <h3>Dividend Income</h3>
+          <p>Financial-year dividend receipts using previous-month SBI TT BUY rates for INR conversion.</p>
+        </div>
+        <div className="card-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={rows.length === 0}
+            onClick={() => downloadCsvFile('dividend-income', exportColumns, rows)}
+          >
+            Download CSV
+          </button>
+          <span className="badge">{rows.length} rows</span>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <EmptyTableState
+          title="No dividend income rows in this year"
+          description="IBKR dividend receipts inside the selected financial year will appear here after the report is generated."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Symbol</th>
+                <th>Dividend Date</th>
+                <th>Description</th>
+                <th>Dividend Amount USD</th>
+                <th>Dividend FX Rate</th>
+                <th>Dividend FX Date</th>
+                <th>Dividend Amount INR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.stockSymbol}</td>
+                  <td>{formatUiDate(row.dividendDate)}</td>
+                  <td>{row.description}</td>
+                  <td>{formatUsd(row.dividendAmountUsd)}</td>
+                  <td>{row.fxRate !== null ? row.fxRate.toFixed(2) : '-'}</td>
+                  <td>{row.fxRateDate ? formatUiDate(row.fxRateDate) : '-'}</td>
+                  <td>{row.dividendAmountInr !== null ? formatInr(row.dividendAmountInr) : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}>Totals</td>
+                <td>{formatUsd(totalDividendAmountUsd)}</td>
+                <td></td>
+                <td></td>
+                <td>{formatInr(totalDividendAmountInr)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function OpenHoldingsTable({
   title,
   subtitle,
@@ -1227,6 +1318,8 @@ function ScheduleFaTable({
   const totalBuyAmountInr = sumBy(sortedRows, (row) => row.buyAmountInr ?? 0)
   const totalSellAmountUsd = sumBy(sortedRows, (row) => row.sellAmountUsd ?? 0)
   const totalSellAmountInr = sumBy(sortedRows, (row) => row.sellAmountInr ?? 0)
+  const totalDividendReceivedUsd = sumBy(sortedRows, (row) => row.dividendReceivedUsd)
+  const totalDividendReceivedInr = sumBy(sortedRows, (row) => row.dividendReceivedInr)
   const totalMaxAmountUsd = sumBy(sortedRows, (row) => row.maxAmountUsd ?? 0)
   const totalMaxAmountInr = sumBy(sortedRows, (row) => row.maxAmountInr ?? 0)
   const totalClosingAmountUsd = sumBy(sortedRows, (row) => row.closingAmountUsd ?? 0)
@@ -1247,6 +1340,10 @@ function ScheduleFaTable({
     { header: 'Sell FX Rate', value: (row) => row.sellFxRate },
     { header: 'Sell FX Date', value: (row) => row.sellFxRateDate },
     { header: 'Sell Amount INR', value: (row) => row.sellAmountInr },
+    { header: 'Dividend Received USD', value: (row) => row.dividendReceivedUsd },
+    { header: 'Dividend FX Rate', value: (row) => row.dividendFxRate },
+    { header: 'Dividend FX Date', value: (row) => row.dividendFxDate },
+    { header: 'Dividend Amount INR', value: (row) => row.dividendReceivedInr },
     { header: 'Max Price / Share USD', value: (row) => row.maxPricePerShareUsd },
     { header: 'Max Price Date', value: (row) => row.maxPriceDate },
     { header: 'Max Amount USD', value: (row) => row.maxAmountUsd },
@@ -1305,6 +1402,10 @@ function ScheduleFaTable({
                 <th>Sell FX Rate</th>
                 <th>Sell FX Date</th>
                 <th>Sell Amount INR</th>
+                <th>Dividend Received USD</th>
+                <th>Dividend FX Rate</th>
+                <th>Dividend FX Date</th>
+                <th>Dividend Amount INR</th>
                 <th>Max Price / Share</th>
                 <th>Max Price Date</th>
                 <th>Max Amount USD</th>
@@ -1336,6 +1437,10 @@ function ScheduleFaTable({
                   <td>{row.sellFxRate !== null ? row.sellFxRate.toFixed(2) : '-'}</td>
                   <td>{row.sellFxRateDate ? formatUiDate(row.sellFxRateDate) : '-'}</td>
                   <td>{row.sellAmountInr !== null ? formatInr(row.sellAmountInr) : '-'}</td>
+                  <td>{formatUsd(row.dividendReceivedUsd)}</td>
+                  <td>{row.dividendFxRate ?? '-'}</td>
+                  <td>{row.dividendFxDate ? row.dividendFxDate.split('; ').map((date) => formatUiDate(date)).join('; ') : '-'}</td>
+                  <td>{formatInr(row.dividendReceivedInr)}</td>
                   <td>{row.maxPricePerShareUsd !== null ? formatUsd(row.maxPricePerShareUsd) : '-'}</td>
                   <td>{row.maxPriceDate ? formatUiDate(row.maxPriceDate) : '-'}</td>
                   <td>{row.maxAmountUsd !== null ? formatUsd(row.maxAmountUsd) : '-'}</td>
@@ -1366,6 +1471,10 @@ function ScheduleFaTable({
                 <td></td>
                 <td></td>
                 <td>{formatInr(totalSellAmountInr)}</td>
+                <td>{formatUsd(totalDividendReceivedUsd)}</td>
+                <td></td>
+                <td></td>
+                <td>{formatInr(totalDividendReceivedInr)}</td>
                 <td></td>
                 <td></td>
                 <td>{formatUsd(totalMaxAmountUsd)}</td>
@@ -1493,6 +1602,15 @@ function App() {
     () => buildCapitalGainsSellToCoverRows(capitalGainsSellToCoverRows, parsedExchangeRateFile?.rows ?? []),
     [capitalGainsSellToCoverRows, parsedExchangeRateFile],
   )
+  const dividendIncomeRows = useMemo(
+    () =>
+      buildDividendIncomeRows(
+        selectedBroker === 'ibkr' ? (parsedIbkrFile?.dividendRows ?? []) : [],
+        parsedExchangeRateFile?.rows ?? [],
+        assessmentYearContext,
+      ),
+    [assessmentYearContext, parsedExchangeRateFile, parsedIbkrFile, selectedBroker],
+  )
 
   const lifetimeFifoReport = useMemo(
     () => buildFifoReport(allTransactions),
@@ -1526,11 +1644,13 @@ function App() {
         overviewHoldingsReport.openHoldings,
         parsedHistoricalPriceFile?.rows ?? [],
         parsedExchangeRateFile?.rows ?? [],
+        parsedIbkrFile?.dividendRows ?? [],
         assessmentYearContext,
       ),
     [
       assessmentYearContext,
       parsedExchangeRateFile,
+      parsedIbkrFile,
       lifetimeFifoReport.matchedLots,
       overviewHoldingsReport.openHoldings,
       parsedHistoricalPriceFile,
@@ -1721,7 +1841,7 @@ function App() {
       {
         id: 'ibkr-transactions',
         title: 'IBKR Transactions sample',
-        description: 'Example IBKR consolidated transaction rows showing Buy, Sell, and ignored Dividend entries.',
+        description: 'Example IBKR consolidated transaction rows showing Buy, Sell, and Dividend entries used by the app.',
         csvText: ibkrTransactionSampleCsv,
       },
     ],
@@ -2411,7 +2531,7 @@ function App() {
                   <>
                     <UploadFieldCard
                       label="IBKR Transactions CSV"
-                      helperText="Upload the consolidated transaction history export. Buy and sell rows will be used; dividends and cash movements are ignored here."
+                      helperText="Upload the consolidated transaction history export. Buy and sell rows drive FIFO; Dividend rows are used for the Schedule FA dividend column."
                       file={selectedIbkrFile}
                       status={selectedIbkrFile ? 'ready' : 'pending'}
                       statusLabel={selectedIbkrFile ? 'Selected' : 'Required'}
@@ -2544,6 +2664,11 @@ function App() {
               label="Capital Gains"
               onClick={() => setActiveTab('capitalGains')}
             />
+            <TabButton
+              isActive={activeTab === 'dividendIncome'}
+              label="Dividend Income"
+              onClick={() => setActiveTab('dividendIncome')}
+            />
           </div>
 
           {activeTab === 'overview' ? (
@@ -2636,6 +2761,27 @@ function App() {
                 subtitle="Financial-year sell-to-cover sales using previous-month SBI TT BUY rates for INR conversion."
                 rows={capitalGainsSellToCoverDisplayRows}
               />
+            </>
+          ) : null}
+
+          {activeTab === 'dividendIncome' ? (
+            <>
+              <div className="section-banner">
+                <div>
+                  <h2>Dividend Income</h2>
+                  <p>
+                    This tab uses the financial year for {assessmentYearContext.assessmentYearLabel}:{' '}
+                    {formatUiDate(assessmentYearContext.financialStart)} to{' '}
+                    {formatUiDate(assessmentYearContext.financialEnd)}.
+                  </p>
+                </div>
+                <div className="results-meta">
+                  <span className="badge">{dividendIncomeRows.length} rows</span>
+                  <span className="badge subtle">Previous-month FX lookup</span>
+                </div>
+              </div>
+
+              <DividendIncomeTable rows={dividendIncomeRows} />
             </>
           ) : null}
         </section>

@@ -17,8 +17,20 @@ describe('parseIbkrTransactionsCsv', () => {
 
     expect(parsed.reportName).toBe('IBKR Transaction History')
     expect(parsed.rows).toHaveLength(3)
+    expect(parsed.dividendRows).toEqual([
+      {
+        broker: 'ibkr',
+        stockSymbol: 'GOOG',
+        sourceRowNumber: 7,
+        tradeDate: '2025-04-15',
+        description:
+          'GOOG(US02079K1079) Cash Dividend USD 0.20 per Share (Ordinary Dividend)',
+        transactionTypeLabel: 'Dividend',
+        netAmountUsd: 0.2,
+      },
+    ])
     expect(parsed.uniqueSymbols).toEqual(['GOOG', 'MSFT'])
-    expect(parsed.ignoredRowCount).toBe(1)
+    expect(parsed.ignoredRowCount).toBe(0)
     expect(parsed.rows[0]).toMatchObject({
       broker: 'ibkr',
       stockSymbol: 'GOOG',

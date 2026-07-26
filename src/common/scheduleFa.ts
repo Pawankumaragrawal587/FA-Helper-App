@@ -1,8 +1,13 @@
-import { getExchangeRateOnOrBefore, getMaxInrAmountForRange } from './exchangeRates'
+import {
+  getCapitalGainsExchangeRate,
+  getExchangeRateOnOrBefore,
+  getMaxInrAmountForRange,
+} from './exchangeRates'
 import type {
   ExchangeRateRow,
   FifoMatchedLot,
   HistoricalPriceRow,
+  IbkrDividendRecord,
   OpenHolding,
 } from '../types'
 
@@ -47,6 +52,10 @@ export interface ScheduleFaRow {
   sellFxRate: number | null
   sellFxRateDate: string | null
   sellAmountInr: number | null
+  dividendReceivedUsd: number
+  dividendFxRate: string | null
+  dividendFxDate: string | null
+  dividendReceivedInr: number
   maxPricePerShareUsd: number | null
   maxPriceDate: string | null
   maxFxRate: number | null
@@ -118,12 +127,110 @@ function getClosingPriceOnOrBefore(
   return lastRow ? lastRow.closePriceUsd : null
 }
 
+function allocateDividendsToScheduleFaRows(
+  rows: ScheduleFaRow[],
+  dividendRows: IbkrDividendRecord[],
+  exchangeRates: ExchangeRateRow[],
+  context: ScheduleFaContext,
+): ScheduleFaRow[] {
+  if (rows.length === 0 || dividendRows.length === 0) {
+    return rows.map((row) => ({
+      ...row,
+      dividendReceivedUsd: row.dividendReceivedUsd ?? 0,
+      dividendFxRate: row.dividendFxRate ?? null,
+      dividendFxDate: row.dividendFxDate ?? null,
+      dividendReceivedInr: row.dividendReceivedInr ?? 0,
+    }))
+  }
+
+  const dividendTotalsByRowId = new Map<
+    string,
+    {
+      usd: number
+      inr: number
+      fxEntries: Array<{ rate: number; date: string }>
+    }
+  >()
+  const sortedDividends = [...dividendRows].sort(
+    (left, right) =>
+      left.tradeDate.localeCompare(right.tradeDate) || left.sourceRowNumber - right.sourceRowNumber,
+  )
+
+  sortedDividends.forEach((dividendRow) => {
+    if (dividendRow.tradeDate < context.calendarStart || dividendRow.tradeDate > context.calendarEnd) {
+      return
+    }
+
+    const activeRows = rows.filter((row) => {
+      if (row.stockSymbol !== dividendRow.stockSymbol) {
+        return false
+      }
+
+      const rowEndDate = row.sellDate ?? context.calendarEnd
+      return row.buyDate <= dividendRow.tradeDate && rowEndDate >= dividendRow.tradeDate
+    })
+
+    const totalSharesHeld = activeRows.reduce((total, row) => total + row.shares, 0)
+    if (totalSharesHeld <= 0) {
+      return
+    }
+
+    const dividendFxLookup = getCapitalGainsExchangeRate(exchangeRates, dividendRow.tradeDate)
+
+    activeRows.forEach((row) => {
+      const allocatedDividend = dividendRow.netAmountUsd * (row.shares / totalSharesHeld)
+      const currentTotals = dividendTotalsByRowId.get(row.id) ?? {
+        usd: 0,
+        inr: 0,
+        fxEntries: [],
+      }
+
+      currentTotals.usd += allocatedDividend
+
+      if (dividendFxLookup) {
+        currentTotals.inr += allocatedDividend * dividendFxLookup.rate
+        currentTotals.fxEntries.push({
+          rate: dividendFxLookup.rate,
+          date: dividendFxLookup.rateDate,
+        })
+      }
+
+      dividendTotalsByRowId.set(row.id, currentTotals)
+    })
+  })
+
+  return rows.map((row) => ({
+    ...row,
+    dividendReceivedUsd: Number((dividendTotalsByRowId.get(row.id)?.usd ?? 0).toFixed(2)),
+    dividendFxRate: (() => {
+      const fxEntries = dividendTotalsByRowId.get(row.id)?.fxEntries ?? []
+      if (fxEntries.length === 0) {
+        return null
+      }
+
+      const uniqueRates = [...new Set(fxEntries.map((entry) => entry.rate.toFixed(2)))]
+      return uniqueRates.join('; ')
+    })(),
+    dividendFxDate: (() => {
+      const fxEntries = dividendTotalsByRowId.get(row.id)?.fxEntries ?? []
+      if (fxEntries.length === 0) {
+        return null
+      }
+
+      const uniqueDates = [...new Set(fxEntries.map((entry) => entry.date))]
+      return uniqueDates.join('; ')
+    })(),
+    dividendReceivedInr: Number((dividendTotalsByRowId.get(row.id)?.inr ?? 0).toFixed(2)),
+  }))
+}
+
 export function buildScheduleFaRows(
   lifetimeMatchedLots: FifoMatchedLot[],
   sellToCoverRows: ScheduleFaSellToCoverRow[],
   openHoldings: OpenHolding[],
   historicalPrices: HistoricalPriceRow[],
   exchangeRates: ExchangeRateRow[],
+  dividendRows: IbkrDividendRecord[],
   context: ScheduleFaContext,
 ): ScheduleFaRow[] {
   const matchedRows = lifetimeMatchedLots
@@ -174,6 +281,10 @@ export function buildScheduleFaRows(
         sellFxRateDate: sellFxLookup?.rateDate ?? null,
         sellAmountInr:
           sellFxLookup !== null ? Number((row.sellAmountUsd * sellFxLookup.rate).toFixed(2)) : null,
+        dividendReceivedUsd: 0,
+        dividendFxRate: null,
+        dividendFxDate: null,
+        dividendReceivedInr: 0,
         maxPricePerShareUsd,
         maxPriceDate: maxPriceResult?.date ?? null,
         maxFxRate: maxInrResult?.fxRate ?? null,
@@ -240,6 +351,10 @@ export function buildScheduleFaRows(
         sellFxRateDate: sellFxLookup?.rateDate ?? null,
         sellAmountInr:
           sellFxLookup !== null ? Number((row.sellAmountUsd * sellFxLookup.rate).toFixed(2)) : null,
+        dividendReceivedUsd: 0,
+        dividendFxRate: null,
+        dividendFxDate: null,
+        dividendReceivedInr: 0,
         maxPricePerShareUsd,
         maxPriceDate: maxPriceResult?.date ?? null,
         maxFxRate: maxInrResult?.fxRate ?? null,
@@ -308,6 +423,10 @@ export function buildScheduleFaRows(
         sellFxRate: null,
         sellFxRateDate: null,
         sellAmountInr: null,
+        dividendReceivedUsd: 0,
+        dividendFxRate: null,
+        dividendFxDate: null,
+        dividendReceivedInr: 0,
         maxPricePerShareUsd,
         maxPriceDate: maxPriceResult?.date ?? null,
         maxFxRate: maxInrResult?.fxRate ?? null,
@@ -329,5 +448,10 @@ export function buildScheduleFaRows(
       }
     })
 
-  return [...matchedRows, ...coverRows, ...openRows].sort(sortBySymbolBuyDateThenSellDate)
+  return allocateDividendsToScheduleFaRows(
+    [...matchedRows, ...coverRows, ...openRows].sort(sortBySymbolBuyDateThenSellDate),
+    dividendRows,
+    exchangeRates,
+    context,
+  )
 }
