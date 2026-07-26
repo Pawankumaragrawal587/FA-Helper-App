@@ -5,9 +5,9 @@ import { deriveLongShareSaleTransactions } from './transform'
 
 const sampleCsv = `Sales - Long Shares
 Period Start Date,Period End Date,Withdrawal Reference Number,Originating Release Reference Number,Employee Grant Number,Grant Name,Lot Number,Sale Type,Sale Date,Original Acquisition Date,Sold Within 30 Days of Vest,Original Cost Basis Per Share,,Original Cost Basis,,Shares Sold,Sale Proceeds,,Sale Price Per Share,,Brokerage Commission,,Supplemental Transaction Fee,
-01-Jan-2025,31-Dec-2025,SELLREF-101,RELREF-101,GRANT-101,Example Grant A,1,Long Shares,18-Feb-2025,13-Feb-2025,YES,$316.00,USD,$948.00,USD,3,$942.00,USD,$314.0000,USD,$0.00,USD,$0.06,USD
-01-Jan-2025,31-Dec-2025,SELLREF-102,RELREF-102,GRANT-102,Example Grant B,1,Long Shares,04-Mar-2025,18-Feb-2025,YES,$315.44,USD,"$1,892.64",USD,6,"$1,605.00",USD,$267.5000,USD,$0.00,USD,$0.13,USD
-,,,,,,,,,,,,,,,9,"$2,547.00",USD,,,$0.00,USD,$0.19,USD
+01-Jan-2025,31-Dec-2025,SELLREF-101,RELREF-101,GRANT-101,Sample Grant Alpha,1,Long Shares,20-Jun-2025,10-Mar-2025,NO,$100.00,USD,$500.00,USD,5,$550.00,USD,$110.0000,USD,$0.00,USD,$0.20,USD
+01-Jan-2025,31-Dec-2025,SELLREF-102,RELREF-102,GRANT-102,Sample Grant Beta,1,Long Shares,01-Jul-2025,15-Apr-2025,NO,$120.00,USD,$480.00,USD,4,$520.00,USD,$130.0000,USD,$0.00,USD,$0.25,USD
+,,,,,,,,,,,,,,,9,"$1,070.00",USD,,,$0.00,USD,$0.45,USD
 `
 
 describe('Shareworks sample file', () => {
@@ -22,21 +22,21 @@ describe('Shareworks sample file', () => {
       {
         sourceRowNumber: 5,
         reason: 'Summary totals row',
-        preview: '9 | $2,547.00 | USD | $0.00',
+        preview: '9 | $1,070.00 | USD | $0.00',
       },
     ])
     expect(transactions).toHaveLength(2)
     expect(transactions[0]).toMatchObject({
       transactionType: 'SELL',
-      tradeDate: '2025-02-18',
-      shares: 3,
-      grossAmountUsd: 942,
+      tradeDate: '2025-06-20',
+      shares: 5,
+      grossAmountUsd: 550,
     })
     expect(transactions.at(-1)).toMatchObject({
       transactionType: 'SELL',
-      tradeDate: '2025-03-04',
-      shares: 6,
-      grossAmountUsd: 1605,
+      tradeDate: '2025-07-01',
+      shares: 4,
+      grossAmountUsd: 520,
     })
   })
 })

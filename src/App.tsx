@@ -1,4 +1,5 @@
 import { useMemo, useState, type ChangeEvent } from 'react'
+import Papa from 'papaparse'
 
 import './App.css'
 import { buildFifoReport } from './shareworks/fifo'
@@ -32,6 +33,11 @@ const BROKER_OPTIONS: Array<{ value: BrokerType; label: string }> = [
 
 type LogLevel = 'info' | 'warning' | 'error'
 type ReportTabId = 'overview' | 'faA3' | 'capitalGains'
+
+interface CsvColumn<T> {
+  header: string
+  value: (row: T) => number | string | null | undefined
+}
 
 interface UiLogEntry {
   id: string
@@ -140,6 +146,29 @@ function formatInr(value: number): string {
     currency: 'INR',
     maximumFractionDigits: 2,
   }).format(value)
+}
+
+function sanitizeFileName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+}
+
+function downloadCsvFile<T>(fileName: string, columns: CsvColumn<T>[], rows: T[]): void {
+  const csv = Papa.unparse(
+    rows.map((row) =>
+      Object.fromEntries(columns.map((column) => [column.header, column.value(row) ?? ''])),
+    ),
+  )
+
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `${sanitizeFileName(fileName)}.csv`
+  anchor.click()
+  URL.revokeObjectURL(url)
 }
 
 function createLog(level: LogLevel, message: string): UiLogEntry {
@@ -669,6 +698,17 @@ function FifoMatchesTable({
   const totalBuyAmountUsd = sumBy(sortedMatchedLots, (matchedLot) => matchedLot.buyAmountUsd)
   const totalSellAmountUsd = sumBy(sortedMatchedLots, (matchedLot) => matchedLot.sellAmountUsd)
   const totalGainOrLossUsd = sumBy(sortedMatchedLots, (matchedLot) => matchedLot.gainOrLossUsd)
+  const exportColumns: CsvColumn<FifoMatchedLot>[] = [
+    { header: 'Buy Date', value: (row) => row.buyDate },
+    { header: 'Sell Date', value: (row) => row.sellDate },
+    { header: 'Grant', value: (row) => row.grantName },
+    { header: 'Shares Matched', value: (row) => row.sharesMatched },
+    { header: 'Buy Price USD', value: (row) => row.buyPricePerShareUsd },
+    { header: 'Sell Price USD', value: (row) => row.sellPricePerShareUsd },
+    { header: 'Buy Amount USD', value: (row) => row.buyAmountUsd },
+    { header: 'Sell Amount USD', value: (row) => row.sellAmountUsd },
+    { header: 'Gain / Loss USD', value: (row) => row.gainOrLossUsd },
+  ]
 
   return (
     <section className="transaction-card">
@@ -677,7 +717,17 @@ function FifoMatchesTable({
           <h3>{title}</h3>
           <p>{subtitle}</p>
         </div>
-        <span className="badge">{matchedLots.length} rows</span>
+        <div className="card-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={sortedMatchedLots.length === 0}
+            onClick={() => downloadCsvFile(title, exportColumns, sortedMatchedLots)}
+          >
+            Download CSV
+          </button>
+          <span className="badge">{matchedLots.length} rows</span>
+        </div>
       </div>
 
       <div className="table-wrap">
@@ -741,6 +791,17 @@ function SellToCoverTable({
   const totalBuyAmountUsd = sumBy(sortedSellToCoverRows, (row) => row.buyAmountUsd)
   const totalSellAmountUsd = sumBy(sortedSellToCoverRows, (row) => row.sellAmountUsd)
   const totalGainOrLossUsd = sumBy(sortedSellToCoverRows, (row) => row.gainOrLossUsd)
+  const exportColumns: CsvColumn<SellToCoverDisplayRow>[] = [
+    { header: 'Buy Date', value: (row) => row.buyDate },
+    { header: 'Sell Date', value: (row) => row.sellDate },
+    { header: 'Grant', value: (row) => row.grantName },
+    { header: 'Shares Matched', value: (row) => row.sharesMatched },
+    { header: 'Buy Price USD', value: (row) => row.buyPricePerShareUsd },
+    { header: 'Sell Price USD', value: (row) => row.sellPricePerShareUsd },
+    { header: 'Buy Amount USD', value: (row) => row.buyAmountUsd },
+    { header: 'Sell Amount USD', value: (row) => row.sellAmountUsd },
+    { header: 'Gain / Loss USD', value: (row) => row.gainOrLossUsd },
+  ]
 
   return (
     <section className="transaction-card">
@@ -749,7 +810,17 @@ function SellToCoverTable({
           <h3>{title}</h3>
           <p>{subtitle}</p>
         </div>
-        <span className="badge">{sortedSellToCoverRows.length} rows</span>
+        <div className="card-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={sortedSellToCoverRows.length === 0}
+            onClick={() => downloadCsvFile(title, exportColumns, sortedSellToCoverRows)}
+          >
+            Download CSV
+          </button>
+          <span className="badge">{sortedSellToCoverRows.length} rows</span>
+        </div>
       </div>
 
       <div className="table-wrap">
@@ -816,6 +887,24 @@ function CapitalGainsTable({
   const totalBuyAmountInr = sumBy(sortedRows, (row) => row.buyAmountInr ?? 0)
   const totalSellAmountInr = sumBy(sortedRows, (row) => row.sellAmountInr ?? 0)
   const totalGainOrLossInr = sumBy(sortedRows, (row) => row.gainOrLossInr ?? 0)
+  const exportColumns: CsvColumn<CapitalGainDisplayRow>[] = [
+    { header: 'Buy Date', value: (row) => row.buyDate },
+    { header: 'Sell Date', value: (row) => row.sellDate },
+    { header: 'Grant', value: (row) => row.grantName },
+    { header: 'Shares Matched', value: (row) => row.sharesMatched },
+    { header: 'Buy Price USD', value: (row) => row.buyPricePerShareUsd },
+    { header: 'Buy Amount USD', value: (row) => row.buyAmountUsd },
+    { header: 'Buy FX Rate', value: (row) => row.buyFxRate },
+    { header: 'Buy FX Date', value: (row) => row.buyFxRateDate },
+    { header: 'Buy Amount INR', value: (row) => row.buyAmountInr },
+    { header: 'Sell Price USD', value: (row) => row.sellPricePerShareUsd },
+    { header: 'Sell Amount USD', value: (row) => row.sellAmountUsd },
+    { header: 'Sell FX Rate', value: (row) => row.sellFxRate },
+    { header: 'Sell FX Date', value: (row) => row.sellFxRateDate },
+    { header: 'Sell Amount INR', value: (row) => row.sellAmountInr },
+    { header: 'Gain / Loss USD', value: (row) => row.gainOrLossUsd },
+    { header: 'Gain / Loss INR', value: (row) => row.gainOrLossInr },
+  ]
 
   return (
     <section className="transaction-card">
@@ -824,7 +913,17 @@ function CapitalGainsTable({
           <h3>{title}</h3>
           <p>{subtitle}</p>
         </div>
-        <span className="badge">{sortedRows.length} rows</span>
+        <div className="card-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={sortedRows.length === 0}
+            onClick={() => downloadCsvFile(title, exportColumns, sortedRows)}
+          >
+            Download CSV
+          </button>
+          <span className="badge">{sortedRows.length} rows</span>
+        </div>
       </div>
 
       <div className="table-wrap">
@@ -907,6 +1006,13 @@ function OpenHoldingsTable({
   const sortedOpenHoldings = [...openHoldings].sort(sortByBuyDateThenSellDate)
   const totalSharesRemaining = sumBy(sortedOpenHoldings, (holding) => holding.sharesRemaining)
   const totalCostBasisUsd = sumBy(sortedOpenHoldings, (holding) => holding.costBasisUsd)
+  const exportColumns: CsvColumn<OpenHolding>[] = [
+    { header: 'Buy Date', value: (row) => row.buyDate },
+    { header: 'Grant', value: (row) => row.grantName },
+    { header: 'Shares Remaining', value: (row) => row.sharesRemaining },
+    { header: 'Buy Price USD', value: (row) => row.buyPricePerShareUsd },
+    { header: 'Cost Basis USD', value: (row) => row.costBasisUsd },
+  ]
 
   return (
     <section className="transaction-card">
@@ -915,7 +1021,17 @@ function OpenHoldingsTable({
           <h3>{title}</h3>
           <p>{subtitle}</p>
         </div>
-        <span className="badge">{openHoldings.length} rows</span>
+        <div className="card-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={sortedOpenHoldings.length === 0}
+            onClick={() => downloadCsvFile(title, exportColumns, sortedOpenHoldings)}
+          >
+            Download CSV
+          </button>
+          <span className="badge">{openHoldings.length} rows</span>
+        </div>
       </div>
 
       <div className="table-wrap">
@@ -969,6 +1085,34 @@ function ScheduleFaTable({
   const totalMaxAmountInr = sumBy(sortedRows, (row) => row.maxAmountInr ?? 0)
   const totalClosingAmountUsd = sumBy(sortedRows, (row) => row.closingAmountUsd ?? 0)
   const totalClosingAmountInr = sumBy(sortedRows, (row) => row.closingAmountInr ?? 0)
+  const exportColumns: CsvColumn<ScheduleFaRow>[] = [
+    { header: 'Holding Type', value: (row) => row.holdingType },
+    { header: 'Buy Date', value: (row) => row.buyDate },
+    { header: 'Sell Date', value: (row) => row.sellDate },
+    { header: 'Grant', value: (row) => row.grantName },
+    { header: 'Shares', value: (row) => row.shares },
+    { header: 'Buy Price USD', value: (row) => row.buyPricePerShareUsd },
+    { header: 'Buy Amount USD', value: (row) => row.buyAmountUsd },
+    { header: 'Buy FX Rate', value: (row) => row.buyFxRate },
+    { header: 'Buy FX Date', value: (row) => row.buyFxRateDate },
+    { header: 'Buy Amount INR', value: (row) => row.buyAmountInr },
+    { header: 'Sell Price USD', value: (row) => row.sellPricePerShareUsd },
+    { header: 'Sell Amount USD', value: (row) => row.sellAmountUsd },
+    { header: 'Sell FX Rate', value: (row) => row.sellFxRate },
+    { header: 'Sell FX Date', value: (row) => row.sellFxRateDate },
+    { header: 'Sell Amount INR', value: (row) => row.sellAmountInr },
+    { header: 'Max Price / Share USD', value: (row) => row.maxPricePerShareUsd },
+    { header: 'Max Price Date', value: (row) => row.maxPriceDate },
+    { header: 'Max Amount USD', value: (row) => row.maxAmountUsd },
+    { header: 'Max FX Rate', value: (row) => row.maxFxRate },
+    { header: 'Max FX Date', value: (row) => row.maxFxRateDate },
+    { header: 'Max Amount INR', value: (row) => row.maxAmountInr },
+    { header: 'Closing Price USD', value: (row) => row.closingPricePerShareUsd },
+    { header: 'Closing Amount USD', value: (row) => row.closingAmountUsd },
+    { header: 'Closing FX Rate', value: (row) => row.closingFxRate },
+    { header: 'Closing FX Date', value: (row) => row.closingFxRateDate },
+    { header: 'Closing Amount INR', value: (row) => row.closingAmountInr },
+  ]
 
   return (
     <section className="transaction-card">
@@ -977,7 +1121,17 @@ function ScheduleFaTable({
           <h3>Schedule FA A3</h3>
           <p>Calendar-year transaction disclosure rows for the selected assessment year.</p>
         </div>
-        <span className="badge">{rows.length} rows</span>
+        <div className="card-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={sortedRows.length === 0}
+            onClick={() => downloadCsvFile('schedule-fa-a3', exportColumns, sortedRows)}
+          >
+            Download CSV
+          </button>
+          <span className="badge">{rows.length} rows</span>
+        </div>
       </div>
 
       <div className="table-wrap">
@@ -1500,10 +1654,10 @@ function App() {
           <h1>Upload Shareworks releases, sales, price, and FX CSVs to build the report</h1>
           <p>
             The releases file supplies vested shares, sell-to-cover shares, and held shares. The
-            long-share sales file supplies the later sales. The historical price file supplies the
-            max-price and closing-price lookups used by Schedule FA A3. The USD/INR file supplies
-            SBI `TT BUY` rates for INR conversions. Select an assessment year to derive the
-            matching financial-year and calendar-year windows used by each tab.
+            long-share sales file supplies the later sales. The historical TEAM price file
+            supplies the max-price and closing-price lookups used by Schedule FA A3. The USD/INR
+            file supplies SBI `TT BUY` rates for INR conversions. Select an assessment year to
+            derive the matching financial-year and calendar-year windows used by each tab.
           </p>
         </div>
 
@@ -1520,45 +1674,45 @@ function App() {
             </select>
           </label>
 
-          <label className={`field upload-field ${!selectedBroker ? 'disabled' : ''}`}>
-            <span>RSU Releases CSV</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              disabled={!selectedBroker}
-              onChange={handleReleasesFileSelect}
-            />
-          </label>
-
-          <label className={`field upload-field ${!selectedBroker ? 'disabled' : ''}`}>
-            <span>Long Shares Sales CSV</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              disabled={!selectedBroker}
-              onChange={handleSalesFileSelect}
-            />
-          </label>
-
-          <label className={`field upload-field ${!selectedBroker ? 'disabled' : ''}`}>
-            <span>Historical Price CSV</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              disabled={!selectedBroker}
-              onChange={handleHistoricalPriceFileSelect}
-            />
-          </label>
-
-          <label className={`field upload-field ${!selectedBroker ? 'disabled' : ''}`}>
+          <label className="field upload-field">
             <span>USD to INR Rate CSV</span>
             <input
               type="file"
               accept=".csv,text/csv"
-              disabled={!selectedBroker}
               onChange={handleExchangeRateFileSelect}
             />
           </label>
+
+          {selectedBroker === 'shareworks' ? (
+            <>
+              <label className="field upload-field">
+                <span>RSU Releases CSV</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleReleasesFileSelect}
+                />
+              </label>
+
+              <label className="field upload-field">
+                <span>Long Shares Sales CSV</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleSalesFileSelect}
+                />
+              </label>
+
+              <label className="field upload-field">
+                <span>Historical TEAM Price</span>
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  onChange={handleHistoricalPriceFileSelect}
+                />
+              </label>
+            </>
+          ) : null}
 
           <label className="field">
             <span>Assessment year</span>
@@ -1641,8 +1795,8 @@ function App() {
 
         {!parsedSalesFile || !parsedReleasesFile || !parsedHistoricalPriceFile || !parsedExchangeRateFile ? (
           <p className="status-message">
-            Select `Shareworks`, choose the releases, sales, historical price, and USD/INR rate
-            CSV files, optionally adjust the assessment year, and click `Generate report`.
+            Select a broker, upload the USD/INR rate CSV, then upload the broker-specific files
+            that appear. After that, optionally adjust the assessment year and click `Generate report`.
           </p>
         ) : null}
       </section>

@@ -11,7 +11,7 @@ const sampleCsv = `DATE,PDF FILE,TT BUY,TT SELL,BILL BUY,BILL SELL,FOREX TRAVEL 
 2020-01-06 09:00,example.pdf,71.65,72.50,71.59,72.65,71.00,72.85,70.70,73.00
 2020-01-17 09:00,example.pdf,70.58,71.43,70.52,71.57,69.9,71.8,69.6,71.9
 2020-01-18 09:00,example.pdf,0,0,70.54,71.59,69.9,71.8,69.6,71.9
-2024-12-31 09:00,example.pdf,83.50,84.10,83.10,84.60,82.90,84.90,82.50,85.10
+2025-10-31 09:00,example.pdf,72.15,72.75,71.75,73.15,71.45,73.35,71.05,73.65
 `
 
 describe('parseExchangeRateCsv', () => {
@@ -43,9 +43,9 @@ describe('parseExchangeRateCsv', () => {
   it('uses previous-month-end lookup for capital gains dates', () => {
     const parsed = parseExchangeRateCsv(sampleCsv)
 
-    expect(getCapitalGainsExchangeRate(parsed.rows, '2025-01-04')).toMatchObject({
-      targetDate: '2024-12-31',
-      rateDate: '2024-12-31',
+    expect(getCapitalGainsExchangeRate(parsed.rows, '2025-11-04')).toMatchObject({
+      targetDate: '2025-10-31',
+      rateDate: '2025-10-31',
     })
   })
 })
