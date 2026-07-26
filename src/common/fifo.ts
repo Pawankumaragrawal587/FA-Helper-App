@@ -49,6 +49,7 @@ export function buildFifoReport(transactions: NormalizedTransaction[]): FifoRepo
         id: `${sellTransaction.id}-${acquisitionLot.transaction.id}-${matchedShares}`,
         acquisitionTransactionId: acquisitionLot.transaction.id,
         sellTransactionId: sellTransaction.id,
+        stockSymbol: acquisitionLot.transaction.stockSymbol,
         grantName: acquisitionLot.transaction.grantName,
         grantNumber: acquisitionLot.transaction.grantNumber,
         buyDate: acquisitionLot.transaction.tradeDate,
@@ -82,6 +83,7 @@ export function buildFifoReport(transactions: NormalizedTransaction[]): FifoRepo
     .filter((lot) => lot.remainingShares > 0)
     .map((lot) => ({
       id: `${lot.transaction.id}-open`,
+      stockSymbol: lot.transaction.stockSymbol,
       grantName: lot.transaction.grantName,
       grantNumber: lot.transaction.grantNumber,
       buyDate: lot.transaction.tradeDate,

@@ -119,6 +119,7 @@ function validateHeaderRow(headerRow: string[]): void {
 function mapRowToSaleRecord(row: string[], sourceRowNumber: number): ShareworksSaleRecord {
   return {
     broker: 'shareworks',
+    stockSymbol: 'TEAM',
     sourceRowNumber,
     periodStartDate: parseShareworksDate(getCell(row, 0)),
     periodEndDate: parseShareworksDate(getCell(row, 1)),

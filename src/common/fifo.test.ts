@@ -7,6 +7,7 @@ const fifoSampleTransactions: NormalizedTransaction[] = [
   {
     id: 'buy-1',
     broker: 'shareworks',
+    stockSymbol: 'TEAM',
     transactionType: 'ACQUIRE',
     grantName: 'Lot 1',
     grantNumber: 'L1',
@@ -24,6 +25,7 @@ const fifoSampleTransactions: NormalizedTransaction[] = [
   {
     id: 'buy-2',
     broker: 'shareworks',
+    stockSymbol: 'TEAM',
     transactionType: 'ACQUIRE',
     grantName: 'Lot 2',
     grantNumber: 'L2',
@@ -41,6 +43,7 @@ const fifoSampleTransactions: NormalizedTransaction[] = [
   {
     id: 'sell-1',
     broker: 'shareworks',
+    stockSymbol: 'TEAM',
     transactionType: 'SELL',
     grantName: 'Sale 1',
     grantNumber: 'S1',
@@ -58,6 +61,7 @@ const fifoSampleTransactions: NormalizedTransaction[] = [
   {
     id: 'sell-2',
     broker: 'shareworks',
+    stockSymbol: 'TEAM',
     transactionType: 'SELL',
     grantName: 'Sale 2',
     grantNumber: 'S2',
@@ -75,6 +79,7 @@ const fifoSampleTransactions: NormalizedTransaction[] = [
   {
     id: 'sell-3',
     broker: 'shareworks',
+    stockSymbol: 'TEAM',
     transactionType: 'SELL',
     grantName: 'Sale 3',
     grantNumber: 'S3',
@@ -92,6 +97,7 @@ const fifoSampleTransactions: NormalizedTransaction[] = [
   {
     id: 'sell-4',
     broker: 'shareworks',
+    stockSymbol: 'TEAM',
     transactionType: 'SELL',
     grantName: 'Sale 4',
     grantNumber: 'S4',
@@ -109,6 +115,7 @@ const fifoSampleTransactions: NormalizedTransaction[] = [
   {
     id: 'sell-5',
     broker: 'shareworks',
+    stockSymbol: 'TEAM',
     transactionType: 'SELL',
     grantName: 'Sale 5',
     grantNumber: 'S5',
@@ -141,6 +148,7 @@ describe('buildFifoReport', () => {
     expect(report.openHoldings).toEqual([
       {
         id: 'buy-2-open',
+        stockSymbol: 'TEAM',
         grantName: 'Lot 2',
         grantNumber: 'L2',
         buyDate: '2025-02-05',
@@ -151,5 +159,81 @@ describe('buildFifoReport', () => {
       },
     ])
     expect(report.unmatchedSellShares).toBe(0)
+  })
+
+  it('uses source-row order for same-day lots and tracks unmatched sell shares', () => {
+    const report = buildFifoReport([
+      {
+        id: 'buy-later-row',
+        broker: 'ibkr',
+        stockSymbol: 'GOOG',
+        transactionType: 'ACQUIRE',
+        grantName: 'Later row',
+        grantNumber: 'L2',
+        withdrawalReferenceNumber: 'buy-later-row',
+        originatingReleaseReferenceNumber: 'buy-later-row',
+        lotNumber: '2',
+        tradeDate: '2025-04-01',
+        acquisitionDate: '2025-04-01',
+        shares: 1,
+        pricePerShareUsd: 200,
+        grossAmountUsd: 200,
+        feeUsd: 0,
+        sourceRowNumber: 9,
+      },
+      {
+        id: 'buy-earlier-row',
+        broker: 'ibkr',
+        stockSymbol: 'GOOG',
+        transactionType: 'ACQUIRE',
+        grantName: 'Earlier row',
+        grantNumber: 'L1',
+        withdrawalReferenceNumber: 'buy-earlier-row',
+        originatingReleaseReferenceNumber: 'buy-earlier-row',
+        lotNumber: '1',
+        tradeDate: '2025-04-01',
+        acquisitionDate: '2025-04-01',
+        shares: 1,
+        pricePerShareUsd: 100,
+        grossAmountUsd: 100,
+        feeUsd: 0,
+        sourceRowNumber: 2,
+      },
+      {
+        id: 'sell-same-day',
+        broker: 'ibkr',
+        stockSymbol: 'GOOG',
+        transactionType: 'SELL',
+        grantName: 'Sale',
+        grantNumber: 'S1',
+        withdrawalReferenceNumber: 'sell-same-day',
+        originatingReleaseReferenceNumber: 'sell-same-day',
+        lotNumber: '3',
+        tradeDate: '2025-04-02',
+        acquisitionDate: '2025-04-02',
+        shares: 3,
+        pricePerShareUsd: 150,
+        grossAmountUsd: 450,
+        feeUsd: 1,
+        sourceRowNumber: 10,
+      },
+    ])
+
+    expect(report.matchedLots).toEqual([
+      expect.objectContaining({
+        acquisitionTransactionId: 'buy-earlier-row',
+        sharesMatched: 1,
+        buyAmountUsd: 100,
+        allocatedFeeUsd: 0.33,
+      }),
+      expect.objectContaining({
+        acquisitionTransactionId: 'buy-later-row',
+        sharesMatched: 1,
+        buyAmountUsd: 200,
+        allocatedFeeUsd: 0.33,
+      }),
+    ])
+    expect(report.openHoldings).toEqual([])
+    expect(report.unmatchedSellShares).toBe(1)
   })
 })

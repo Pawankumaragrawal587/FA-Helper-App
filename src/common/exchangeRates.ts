@@ -117,11 +117,14 @@ export function getCapitalGainsExchangeRate(
 export function getMaxInrAmountForRange(
   historicalPrices: HistoricalPriceRow[],
   exchangeRates: ExchangeRateRow[],
+  stockSymbol: string,
   startDate: string,
   endDate: string,
   shares: number,
 ): MaxInrAmountResult | null {
-  const matchingPrices = historicalPrices.filter((row) => row.date >= startDate && row.date <= endDate)
+  const matchingPrices = historicalPrices.filter(
+    (row) => row.stockSymbol === stockSymbol && row.date >= startDate && row.date <= endDate,
+  )
 
   let bestResult: MaxInrAmountResult | null = null
 

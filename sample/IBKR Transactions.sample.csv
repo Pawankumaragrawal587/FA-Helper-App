@@ -1,0 +1,14 @@
+Statement,Header,Field Name,Field Value
+Statement,Data,Title,Transaction History
+Statement,Data,Period,"January 01, 2025 - December 31, 2025"
+Statement,Data,WhenGenerated,"2026-01-05, 09:00:00 EDT"
+Summary,Header,Field Name,Field Value
+Summary,Data,Base Currency,USD
+Summary,Data,Starting Cash,0.0
+Summary,Data,Change,124.12
+Summary,Data,Ending Cash,124.12
+Transaction History,Header,Date,Account,Description,Transaction Type,Symbol,Quantity,Price,Price Currency,Gross Amount ,Commission,Net Amount
+Transaction History,Data,2025-02-10,U0000001,ALPHABET INC-CL C,Buy,GOOG,2.0,180.5,USD,-361.0,-0.35,-361.35
+Transaction History,Data,2025-02-18,U0000001,AMAZON.COM INC,Buy,AMZN,3.0,165.0,USD,-495.0,-0.34,-495.34
+Transaction History,Data,2025-03-05,U0000001,ALPHABET INC-CL C,Sell,GOOG,-1.0,192.0,USD,192.0,-0.36,191.64
+Transaction History,Data,2025-03-15,U0000001,GOOG(US02079K1079) Cash Dividend USD 0.20 per Share (Ordinary Dividend),Dividend,GOOG,-,-,-,0.20,-,0.20

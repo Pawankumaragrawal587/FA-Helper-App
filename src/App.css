@@ -553,6 +553,7 @@ tfoot td {
 }
 
 .upload-card {
+  min-width: 0;
   padding: 16px;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -597,17 +598,6 @@ tfoot td {
   font-size: 13px;
 }
 
-.upload-card input {
-  width: 100%;
-  margin-top: 2px;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 10px 12px;
-  font: inherit;
-  color: var(--text-h);
-  background: var(--bg);
-}
-
 .upload-card-meta {
   display: flex;
   flex-wrap: wrap;
@@ -618,6 +608,100 @@ tfoot td {
 
 .upload-card-meta strong {
   color: var(--text-h);
+}
+
+.symbol-upload-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.symbol-upload-panel {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.symbol-upload-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: center;
+  padding: 12px 0;
+  border-top: 1px solid var(--border);
+}
+
+.symbol-upload-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.symbol-upload-row:last-child {
+  padding-bottom: 0;
+}
+
+.symbol-upload-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.symbol-upload-copy strong {
+  color: var(--text-h);
+}
+
+.symbol-upload-copy span {
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+
+.file-picker {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: var(--bg);
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.file-picker.compact {
+  padding: 8px 10px;
+}
+
+.file-picker-button {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-h);
+  font-weight: 600;
+}
+
+.file-picker-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 14px;
+}
+
+.file-picker input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
 }
 
 .status-pill {
@@ -673,6 +757,10 @@ tfoot td {
   .action-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .symbol-upload-row {
+    grid-template-columns: 1fr;
   }
 
   .landing-actions,

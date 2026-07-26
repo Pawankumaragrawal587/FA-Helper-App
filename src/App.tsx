@@ -1,19 +1,21 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import Papa from 'papaparse'
 import exchangeRateSampleCsv from '../sample/SBI_REFERENCE_RATES_USD.sample.csv?raw'
+import ibkrTransactionSampleCsv from '../sample/IBKR Transactions.sample.csv?raw'
 import historicalPriceSampleCsv from '../sample/TEAM-HistoricalData.sample.csv?raw'
 import releasesSampleCsv from '../sample/RSU Releases.sample.csv?raw'
 import salesSampleCsv from '../sample/Sales - Long Shares.sample.csv?raw'
 
 import './App.css'
-import { buildFifoReport } from './shareworks/fifo'
+import { buildFifoReport } from './common/fifo'
 import {
   getCapitalGainsExchangeRate,
   getExchangeRateOnOrBefore,
   getMaxInrAmountForRange,
   parseExchangeRateCsv,
-} from './shareworks/exchangeRates'
-import { parseHistoricalPriceCsv } from './shareworks/historicalPrices'
+} from './common/exchangeRates'
+import { parseHistoricalPriceCsv } from './common/historicalPrices'
+import { deriveIbkrTransactions, parseIbkrTransactionsCsv } from './ibkr/parser'
 import { parseShareworksCsv } from './shareworks/parser'
 import { deriveReleaseTransactions, parseShareworksReleasesCsv } from './shareworks/releases'
 import { deriveLongShareSaleTransactions } from './shareworks/transform'
@@ -23,6 +25,7 @@ import type {
   FifoMatchedLot,
   FifoReport,
   HistoricalPriceRow,
+  ParsedIbkrFile,
   NormalizedTransaction,
   ParsedExchangeRateFile,
   OpenHolding,
@@ -33,6 +36,7 @@ import type {
 
 const BROKER_OPTIONS: Array<{ value: BrokerType; label: string }> = [
   { value: 'shareworks', label: 'Shareworks (Atlassian RSU)' },
+  { value: 'ibkr', label: 'IBKR (Consolidated Transactions)' },
 ]
 
 type LogLevel = 'info' | 'warning' | 'error'
@@ -52,6 +56,7 @@ interface UiLogEntry {
 
 interface SellToCoverDisplayRow {
   id: string
+  stockSymbol: string
   buyDate: string
   sellDate: string
   grantName: string
@@ -65,6 +70,7 @@ interface SellToCoverDisplayRow {
 
 interface CapitalGainDisplayRow {
   id: string
+  stockSymbol: string
   buyDate: string
   sellDate: string
   grantName: string
@@ -87,6 +93,7 @@ interface CapitalGainDisplayRow {
 
 interface ScheduleFaRow {
   id: string
+  stockSymbol: string
   holdingType: string
   buyDate: string
   sellDate: string | null
@@ -262,10 +269,12 @@ function sortByBuyDateThenSellDate<
 function inferAssessmentYearStart(
   parsedSalesFile: ParsedShareworksFile | null,
   parsedReleasesFile: ParsedShareworksReleasesFile | null,
+  parsedIbkrFile: ParsedIbkrFile | null,
 ): number {
   const candidateYears = [
     ...(parsedSalesFile?.rows.map((row) => Number(row.saleDate.slice(0, 4))) ?? []),
     ...(parsedReleasesFile?.rows.map((row) => Number(row.releaseDate.slice(0, 4))) ?? []),
+    ...(parsedIbkrFile?.rows.map((row) => Number(row.tradeDate.slice(0, 4))) ?? []),
   ]
 
   if (candidateYears.length === 0) {
@@ -329,7 +338,7 @@ function UploadFieldCard({
         </div>
         <span className={`status-pill ${status}`}>{statusLabel}</span>
       </div>
-      <input type="file" accept=".csv,text/csv" onChange={onChange} />
+      <FilePicker file={file} onChange={onChange} />
       <div className="upload-card-meta">
         {file ? (
           <>
@@ -343,6 +352,79 @@ function UploadFieldCard({
         )}
       </div>
     </label>
+  )
+}
+
+function FilePicker({
+  file,
+  onChange,
+  buttonLabel = 'Choose file',
+  compact = false,
+}: {
+  file: File | null
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void
+  buttonLabel?: string
+  compact?: boolean
+}) {
+  return (
+    <label className={`file-picker ${compact ? 'compact' : ''}`}>
+      <span className="file-picker-button">{buttonLabel}</span>
+      <span className="file-picker-text">{file ? file.name : 'No file chosen'}</span>
+      <input type="file" accept=".csv,text/csv" onChange={onChange} />
+    </label>
+  )
+}
+
+function SymbolHistoricalPriceUploadCard({
+  symbols,
+  filesBySymbol,
+  onChangeForSymbol,
+}: {
+  symbols: string[]
+  filesBySymbol: Record<string, File | null>
+  onChangeForSymbol: (symbol: string) => (event: ChangeEvent<HTMLInputElement>) => void
+}) {
+  const selectedCount = symbols.filter((symbol) => filesBySymbol[symbol]).length
+
+  return (
+    <section className="symbol-upload-panel">
+      <div className="section-copy">
+        <div>
+          <span className="upload-card-label">Historical Price CSVs by Symbol</span>
+          <p className="upload-card-helper">
+            Upload one historical price CSV for each symbol discovered from the IBKR transactions
+            file.
+          </p>
+        </div>
+        {symbols.length > 0 ? (
+          <span className="summary-label">
+            {selectedCount}/{symbols.length} selected
+          </span>
+        ) : null}
+      </div>
+
+      {symbols.length === 0 ? (
+        <div className="upload-card-meta">
+          <span>Select the IBKR transactions CSV first to discover symbols.</span>
+        </div>
+      ) : (
+        <div className="symbol-upload-list">
+          {symbols.map((symbol) => {
+            const file = filesBySymbol[symbol] ?? null
+
+            return (
+              <label key={symbol} className="symbol-upload-row">
+                <div className="symbol-upload-copy">
+                  <strong>{symbol}</strong>
+                  <span>{file ? `${file.name} (${formatFileSize(file.size)})` : 'No file selected yet.'}</span>
+                </div>
+                <FilePicker file={file} onChange={onChangeForSymbol(symbol)} compact />
+              </label>
+            )
+          })}
+        </div>
+      )}
+    </section>
   )
 }
 
@@ -413,6 +495,7 @@ function buildSellToCoverRows(parsedReleasesFile: ParsedShareworksReleasesFile |
 
       return {
         id: `${row.releaseReferenceNumber}-${row.sourceRowNumber}-cover-display`,
+        stockSymbol: row.stockSymbol,
         buyDate: row.releaseDate,
         sellDate: row.sellToCoverSaleDate,
         grantName: row.grantName,
@@ -440,6 +523,7 @@ function buildCapitalGainsMatchedRows(
 
     return {
       id: `${row.id}-cg`,
+      stockSymbol: row.stockSymbol,
       buyDate: row.buyDate,
       sellDate: row.sellDate,
       grantName: row.grantName,
@@ -479,6 +563,7 @@ function buildCapitalGainsSellToCoverRows(
 
     return {
       id: `${row.id}-cg`,
+      stockSymbol: row.stockSymbol,
       buyDate: row.buyDate,
       sellDate: row.sellDate,
       grantName: row.grantName,
@@ -506,10 +591,13 @@ function buildCapitalGainsSellToCoverRows(
 
 function getMaxPriceForRange(
   historicalPrices: HistoricalPriceRow[],
+  stockSymbol: string,
   startDate: string,
   endDate: string,
 ): { price: number; date: string } | null {
-  const matchingRows = historicalPrices.filter((row) => row.date >= startDate && row.date <= endDate)
+  const matchingRows = historicalPrices.filter(
+    (row) => row.stockSymbol === stockSymbol && row.date >= startDate && row.date <= endDate,
+  )
 
   if (matchingRows.length === 0) {
     return null
@@ -531,9 +619,12 @@ function getMaxPriceForRange(
 
 function getClosingPriceOnOrBefore(
   historicalPrices: HistoricalPriceRow[],
+  stockSymbol: string,
   endDate: string,
 ): number | null {
-  const matchingRows = historicalPrices.filter((row) => row.date <= endDate)
+  const matchingRows = historicalPrices.filter(
+    (row) => row.stockSymbol === stockSymbol && row.date <= endDate,
+  )
   const lastRow = matchingRows.at(-1)
 
   return lastRow ? lastRow.closePriceUsd : null
@@ -556,6 +647,7 @@ function buildScheduleFaRows(
       const rangeEnd = row.sellDate < context.calendarEnd ? row.sellDate : context.calendarEnd
       const maxPriceResult = getMaxPriceForRange(
         historicalPrices,
+        row.stockSymbol,
         rangeStart,
         rangeEnd,
       )
@@ -564,6 +656,7 @@ function buildScheduleFaRows(
       const maxInrResult = getMaxInrAmountForRange(
         historicalPrices,
         exchangeRates,
+        row.stockSymbol,
         rangeStart,
         rangeEnd,
         row.sharesMatched,
@@ -572,6 +665,7 @@ function buildScheduleFaRows(
 
       return {
         id: `${row.id}-fa-long`,
+        stockSymbol: row.stockSymbol,
         holdingType: 'Long Shares Sold',
         buyDate: row.buyDate,
         sellDate: row.sellDate,
@@ -614,6 +708,7 @@ function buildScheduleFaRows(
       const rangeEnd = row.sellDate < context.calendarEnd ? row.sellDate : context.calendarEnd
       const maxPriceResult = getMaxPriceForRange(
         historicalPrices,
+        row.stockSymbol,
         rangeStart,
         rangeEnd,
       )
@@ -622,6 +717,7 @@ function buildScheduleFaRows(
       const maxInrResult = getMaxInrAmountForRange(
         historicalPrices,
         exchangeRates,
+        row.stockSymbol,
         rangeStart,
         rangeEnd,
         row.sharesMatched,
@@ -630,6 +726,7 @@ function buildScheduleFaRows(
 
       return {
         id: `${row.id}-fa-cover`,
+        stockSymbol: row.stockSymbol,
         holdingType: 'Sell-To-Cover',
         buyDate: row.buyDate,
         sellDate: row.sellDate,
@@ -671,6 +768,7 @@ function buildScheduleFaRows(
       const rangeStart = row.buyDate > context.calendarStart ? row.buyDate : context.calendarStart
       const maxPriceResult = getMaxPriceForRange(
         historicalPrices,
+        row.stockSymbol,
         rangeStart,
         context.calendarEnd,
       )
@@ -678,12 +776,17 @@ function buildScheduleFaRows(
       const maxInrResult = getMaxInrAmountForRange(
         historicalPrices,
         exchangeRates,
+        row.stockSymbol,
         rangeStart,
         context.calendarEnd,
         row.sharesRemaining,
       )
       const maxPricePerShareUsd = maxPriceResult?.price ?? null
-      const closingPricePerShareUsd = getClosingPriceOnOrBefore(historicalPrices, context.calendarEnd)
+      const closingPricePerShareUsd = getClosingPriceOnOrBefore(
+        historicalPrices,
+        row.stockSymbol,
+        context.calendarEnd,
+      )
       const closingAmountUsd =
         closingPricePerShareUsd !== null
           ? Number((closingPricePerShareUsd * row.sharesRemaining).toFixed(2))
@@ -692,6 +795,7 @@ function buildScheduleFaRows(
 
       return {
         id: `${row.id}-fa-open`,
+        stockSymbol: row.stockSymbol,
         holdingType: 'Still Holding',
         buyDate: row.buyDate,
         sellDate: null,
@@ -808,6 +912,73 @@ function buildParseLogs(
         createLog('warning', `Sales row ${row.sourceRowNumber}: ${row.reason}. Preview: ${row.preview}`),
       )
     })
+  }
+
+  return logs
+}
+
+function buildIbkrParseLogs(
+  parsedIbkrFile: ParsedIbkrFile,
+  ibkrFileName: string,
+  parsedHistoricalPriceFiles: ParsedHistoricalPriceFile[],
+  parsedExchangeRateFile: ParsedExchangeRateFile,
+  exchangeRateFileName: string,
+  ibkrTransactions: NormalizedTransaction[],
+  fifoReport: FifoReport,
+): UiLogEntry[] {
+  const acquisitionCount = ibkrTransactions.filter(
+    (transaction) => transaction.transactionType === 'ACQUIRE',
+  ).length
+  const sellCount = ibkrTransactions.filter((transaction) => transaction.transactionType === 'SELL').length
+
+  const logs: UiLogEntry[] = [
+    createLog(
+      'info',
+      `Loaded "${ibkrFileName}" with ${parsedIbkrFile.rows.length} IBKR buy/sell rows across ${parsedIbkrFile.uniqueSymbols.length} symbol(s).`,
+    ),
+    createLog(
+      'info',
+      `Loaded ${parsedHistoricalPriceFiles.length} historical price file(s) for symbols: ${parsedIbkrFile.uniqueSymbols.join(', ')}.`,
+    ),
+    createLog(
+      'info',
+      `Loaded "${exchangeRateFileName}" with ${parsedExchangeRateFile.rows.length} TT BUY exchange-rate rows.`,
+    ),
+    createLog(
+      'info',
+      `Derived ${acquisitionCount} buy transactions and ${sellCount} sell transactions from the IBKR export.`,
+    ),
+    createLog(
+      'info',
+      `FIFO matching created ${fifoReport.matchedLots.length} mapped lot entries and ${fifoReport.openHoldings.length} open holding entries.`,
+    ),
+  ]
+
+  if (parsedIbkrFile.ignoredRowCount > 0) {
+    logs.push(
+      createLog(
+        'warning',
+        `Ignored ${parsedIbkrFile.ignoredRowCount} IBKR row(s) that were not buy/sell trades, such as dividends, withholding, or cash movements.`,
+      ),
+    )
+
+    parsedIbkrFile.ignoredRows.slice(0, 10).forEach((row) => {
+      logs.push(
+        createLog(
+          'warning',
+          `IBKR row ${row.sourceRowNumber}: ${row.reason}. Preview: ${row.preview}`,
+        ),
+      )
+    })
+
+    if (parsedIbkrFile.ignoredRows.length > 10) {
+      logs.push(
+        createLog(
+          'info',
+          `Only the first 10 ignored IBKR rows are shown in detail to keep the log readable.`,
+        ),
+      )
+    }
   }
 
   return logs
@@ -1416,10 +1587,16 @@ function ScheduleFaTable({
 function App() {
   const [, setHashRefreshKey] = useState(0)
   const [selectedBroker, setSelectedBroker] = useState<BrokerType | ''>('')
+  const [generatedBroker, setGeneratedBroker] = useState<BrokerType | null>(null)
+  const [selectedIbkrFile, setSelectedIbkrFile] = useState<File | null>(null)
   const [selectedSalesFile, setSelectedSalesFile] = useState<File | null>(null)
   const [selectedReleasesFile, setSelectedReleasesFile] = useState<File | null>(null)
   const [selectedHistoricalPriceFile, setSelectedHistoricalPriceFile] = useState<File | null>(null)
+  const [selectedHistoricalPriceFilesBySymbol, setSelectedHistoricalPriceFilesBySymbol] = useState<
+    Record<string, File | null>
+  >({})
   const [selectedExchangeRateFile, setSelectedExchangeRateFile] = useState<File | null>(null)
+  const [parsedIbkrFile, setParsedIbkrFile] = useState<ParsedIbkrFile | null>(null)
   const [parsedSalesFile, setParsedSalesFile] = useState<ParsedShareworksFile | null>(null)
   const [parsedReleasesFile, setParsedReleasesFile] =
     useState<ParsedShareworksReleasesFile | null>(null)
@@ -1433,8 +1610,8 @@ function App() {
   const [selectedAssessmentYear, setSelectedAssessmentYear] = useState(buildAssessmentYearLabel(2026))
 
   const suggestedAssessmentYearStart = useMemo(
-    () => inferAssessmentYearStart(parsedSalesFile, parsedReleasesFile),
-    [parsedSalesFile, parsedReleasesFile],
+    () => inferAssessmentYearStart(parsedSalesFile, parsedReleasesFile, parsedIbkrFile),
+    [parsedIbkrFile, parsedSalesFile, parsedReleasesFile],
   )
   const assessmentYearOptions = useMemo(
     () => buildAssessmentYearOptions(suggestedAssessmentYearStart),
@@ -1449,30 +1626,47 @@ function App() {
     () => (parsedReleasesFile ? deriveReleaseTransactions(parsedReleasesFile.rows) : []),
     [parsedReleasesFile],
   )
+  const ibkrTransactions = useMemo(
+    () => (parsedIbkrFile ? deriveIbkrTransactions(parsedIbkrFile.rows) : []),
+    [parsedIbkrFile],
+  )
   const longShareSales = useMemo(
     () => (parsedSalesFile ? deriveLongShareSaleTransactions(parsedSalesFile.rows) : []),
     [parsedSalesFile],
   )
+  const allTransactions = useMemo(
+    () =>
+      selectedBroker === 'ibkr' ? ibkrTransactions : [...releaseTransactions, ...longShareSales],
+    [ibkrTransactions, longShareSales, releaseTransactions, selectedBroker],
+  )
   const heldTransactions = useMemo(
-    () => releaseTransactions.filter((transaction) => transaction.transactionType === 'ACQUIRE'),
-    [releaseTransactions],
+    () => allTransactions.filter((transaction) => transaction.transactionType === 'ACQUIRE'),
+    [allTransactions],
+  )
+  const sellTransactions = useMemo(
+    () => allTransactions.filter((transaction) => transaction.transactionType === 'SELL'),
+    [allTransactions],
   )
   const sellToCoverTransactions = useMemo(
     () => releaseTransactions.filter((transaction) => transaction.transactionType === 'SELL_TO_COVER'),
     [releaseTransactions],
   )
   const sellToCoverRows = useMemo(
-    () => buildSellToCoverRows(parsedReleasesFile),
-    [parsedReleasesFile],
+    () => (selectedBroker === 'shareworks' ? buildSellToCoverRows(parsedReleasesFile) : []),
+    [parsedReleasesFile, selectedBroker],
   )
 
   const capitalGainsBaseReport = useMemo(
     () =>
       buildFifoReport([
         ...heldTransactions.filter((transaction) => transaction.tradeDate <= assessmentYearContext.financialEnd),
-        ...longShareSales.filter((transaction) => transaction.tradeDate <= assessmentYearContext.financialEnd),
+        ...allTransactions.filter(
+          (transaction) =>
+            transaction.transactionType === 'SELL' &&
+            transaction.tradeDate <= assessmentYearContext.financialEnd,
+        ),
       ]),
-    [assessmentYearContext.financialEnd, heldTransactions, longShareSales],
+    [allTransactions, assessmentYearContext.financialEnd, heldTransactions],
   )
   const capitalGainsMatches = useMemo(
     () =>
@@ -1498,17 +1692,21 @@ function App() {
   )
 
   const lifetimeFifoReport = useMemo(
-    () => buildFifoReport([...heldTransactions, ...longShareSales]),
-    [heldTransactions, longShareSales],
+    () => buildFifoReport(allTransactions),
+    [allTransactions],
   )
 
   const overviewHoldingsReport = useMemo(
     () =>
       buildFifoReport([
         ...heldTransactions.filter((transaction) => transaction.tradeDate <= assessmentYearContext.calendarEnd),
-        ...longShareSales.filter((transaction) => transaction.tradeDate <= assessmentYearContext.calendarEnd),
+        ...allTransactions.filter(
+          (transaction) =>
+            transaction.transactionType === 'SELL' &&
+            transaction.tradeDate <= assessmentYearContext.calendarEnd,
+        ),
       ]),
-    [assessmentYearContext.calendarEnd, heldTransactions, longShareSales],
+    [allTransactions, assessmentYearContext.calendarEnd, heldTransactions],
   )
   const overviewSellToCoverRows = useMemo(
     () =>
@@ -1670,17 +1868,27 @@ function App() {
     () => [...logs, ...scheduleFaFxLogs, ...capitalGainsFxLogs],
     [capitalGainsFxLogs, logs, scheduleFaFxLogs],
   )
-  const isBrokerSelected = selectedBroker === 'shareworks'
-  const hasAllRequiredFiles = Boolean(
-    selectedBroker &&
-      selectedSalesFile &&
-      selectedReleasesFile &&
-      selectedHistoricalPriceFile &&
-      selectedExchangeRateFile,
-  )
-  const hasGeneratedReport = Boolean(
-    parsedSalesFile && parsedReleasesFile && parsedHistoricalPriceFile && parsedExchangeRateFile,
-  )
+  const isShareworksSelected = selectedBroker === 'shareworks'
+  const isIbkrSelected = selectedBroker === 'ibkr'
+  const ibkrSymbols = parsedIbkrFile?.uniqueSymbols ?? []
+  const ibkrHistoricalFiles = ibkrSymbols.map((symbol) => selectedHistoricalPriceFilesBySymbol[symbol] ?? null)
+  const hasAllRequiredFiles = isShareworksSelected
+    ? Boolean(
+        selectedSalesFile &&
+          selectedReleasesFile &&
+          selectedHistoricalPriceFile &&
+          selectedExchangeRateFile,
+      )
+    : isIbkrSelected
+      ? Boolean(
+          selectedIbkrFile &&
+            selectedExchangeRateFile &&
+            ibkrSymbols.length > 0 &&
+            ibkrHistoricalFiles.every(Boolean),
+        )
+      : false
+  const hasGeneratedReport = generatedBroker === selectedBroker && Boolean(parsedHistoricalPriceFile && parsedExchangeRateFile) &&
+    (isShareworksSelected ? Boolean(parsedSalesFile && parsedReleasesFile) : isIbkrSelected ? Boolean(parsedIbkrFile) : false)
   const sampleTables = useMemo<SampleTableDefinition[]>(
     () => [
       {
@@ -1707,16 +1915,24 @@ function App() {
         description: 'Example SBI reference-rate rows where the app uses the `TT BUY` column.',
         csvText: exchangeRateSampleCsv,
       },
+      {
+        id: 'ibkr-transactions',
+        title: 'IBKR Transactions sample',
+        description: 'Example IBKR consolidated transaction rows showing Buy, Sell, and ignored Dividend entries.',
+        csvText: ibkrTransactionSampleCsv,
+      },
     ],
     [],
   )
   const uploadProgressCount = [
     selectedExchangeRateFile,
-    isBrokerSelected ? selectedReleasesFile : true,
-    isBrokerSelected ? selectedSalesFile : true,
-    isBrokerSelected ? selectedHistoricalPriceFile : true,
+    ...(isShareworksSelected
+      ? [selectedReleasesFile, selectedSalesFile, selectedHistoricalPriceFile]
+      : isIbkrSelected
+        ? [selectedIbkrFile, ...ibkrHistoricalFiles]
+        : []),
   ].filter(Boolean).length
-  const uploadProgressTotal = isBrokerSelected ? 4 : 1
+  const uploadProgressTotal = isShareworksSelected ? 4 : isIbkrSelected ? 2 + ibkrSymbols.length : 1
   const logCounts = useMemo(
     () => ({
       info: displayLogs.filter((log) => log.level === 'info').length,
@@ -1742,8 +1958,47 @@ function App() {
     window.location.hash = page === 'builder' ? 'app' : page === 'samples' ? 'samples' : ''
   }
 
+  async function handleIbkrFileSelect(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    setGeneratedBroker(null)
+    setParsedIbkrFile(null)
+    setParsedHistoricalPriceFile(null)
+    setSelectedIbkrFile(file ?? null)
+    setSelectedHistoricalPriceFilesBySymbol({})
+
+    if (!file) {
+      setLogs((existingLogs) =>
+        existingLogs.filter((entry) => !entry.message.startsWith('Selected IBKR transaction file')),
+      )
+      return
+    }
+
+    try {
+      const csvText = await file.text()
+      const parsed = parseIbkrTransactionsCsv(csvText)
+      setParsedIbkrFile(parsed)
+      setSelectedHistoricalPriceFilesBySymbol(
+        Object.fromEntries(parsed.uniqueSymbols.map((symbol) => [symbol, null])),
+      )
+      setLogs((existingLogs) => [
+        ...existingLogs.filter((entry) => !entry.message.startsWith('Selected IBKR transaction file')),
+        createLog(
+          'info',
+          `Selected IBKR transaction file "${file.name}" with ${parsed.uniqueSymbols.length} symbol(s): ${parsed.uniqueSymbols.join(', ')}.`,
+        ),
+      ])
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unable to parse the selected IBKR file.'
+      setLogs([createLog('error', message)])
+      setSelectedIbkrFile(null)
+      setParsedIbkrFile(null)
+      setSelectedHistoricalPriceFilesBySymbol({})
+    }
+  }
+
   function handleSalesFileSelect(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
+    setGeneratedBroker(null)
     setParsedSalesFile(null)
     setSelectedSalesFile(file ?? null)
 
@@ -1762,6 +2017,7 @@ function App() {
 
   function handleReleasesFileSelect(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
+    setGeneratedBroker(null)
     setParsedReleasesFile(null)
     setSelectedReleasesFile(file ?? null)
 
@@ -1780,6 +2036,7 @@ function App() {
 
   function handleHistoricalPriceFileSelect(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
+    setGeneratedBroker(null)
     setParsedHistoricalPriceFile(null)
     setSelectedHistoricalPriceFile(file ?? null)
 
@@ -1796,8 +2053,28 @@ function App() {
     ])
   }
 
+  function handleHistoricalPriceFileSelectForSymbol(symbol: string) {
+    return (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0] ?? null
+      setGeneratedBroker(null)
+      setParsedHistoricalPriceFile(null)
+      setSelectedHistoricalPriceFilesBySymbol((existingFiles) => ({
+        ...existingFiles,
+        [symbol]: file,
+      }))
+
+      setLogs((existingLogs) => [
+        ...existingLogs.filter((entry) => !entry.message.startsWith(`Selected historical price file for ${symbol}`)),
+        ...(file
+          ? [createLog('info', `Selected historical price file for ${symbol}: "${file.name}".`)]
+          : []),
+      ])
+    }
+  }
+
   function handleExchangeRateFileSelect(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
+    setGeneratedBroker(null)
     setParsedExchangeRateFile(null)
     setSelectedExchangeRateFile(file ?? null)
 
@@ -1815,56 +2092,111 @@ function App() {
   }
 
   async function handleGenerateReport() {
-    if (
-      !selectedBroker ||
-      !selectedSalesFile ||
-      !selectedReleasesFile ||
-      !selectedHistoricalPriceFile ||
-      !selectedExchangeRateFile
-    ) {
+    if (!selectedBroker || !selectedExchangeRateFile) {
       return
     }
 
     setIsGenerating(true)
 
     try {
-      const [salesCsvText, releasesCsvText, historicalPriceCsvText, exchangeRateCsvText] =
-        await Promise.all([
-        selectedSalesFile.text(),
-        selectedReleasesFile.text(),
-        selectedHistoricalPriceFile.text(),
-        selectedExchangeRateFile.text(),
-      ])
-      const nextParsedSalesFile = parseShareworksCsv(salesCsvText)
-      const nextParsedReleasesFile = parseShareworksReleasesCsv(releasesCsvText)
-      const nextParsedHistoricalPriceFile = parseHistoricalPriceCsv(historicalPriceCsvText)
-      const nextParsedExchangeRateFile = parseExchangeRateCsv(exchangeRateCsvText)
-      const nextReleaseTransactions = deriveReleaseTransactions(nextParsedReleasesFile.rows)
-      const nextLongShareSales = deriveLongShareSaleTransactions(nextParsedSalesFile.rows)
-      const nextFifoReport = buildFifoReport([...nextReleaseTransactions, ...nextLongShareSales])
+      if (selectedBroker === 'shareworks') {
+        if (!selectedSalesFile || !selectedReleasesFile || !selectedHistoricalPriceFile) {
+          return
+        }
 
-      setParsedSalesFile(nextParsedSalesFile)
-      setParsedReleasesFile(nextParsedReleasesFile)
-      setParsedHistoricalPriceFile(nextParsedHistoricalPriceFile)
-      setParsedExchangeRateFile(nextParsedExchangeRateFile)
-      setActiveTab('overview')
-      setLogs(
-        buildParseLogs(
-          nextParsedSalesFile,
-          selectedSalesFile.name,
-          nextParsedReleasesFile,
-          selectedReleasesFile.name,
-          nextParsedHistoricalPriceFile,
-          selectedHistoricalPriceFile.name,
-          nextParsedExchangeRateFile,
-          selectedExchangeRateFile.name,
-          nextReleaseTransactions,
-          nextLongShareSales,
-          nextFifoReport,
-        ),
-      )
+        const [salesCsvText, releasesCsvText, historicalPriceCsvText, exchangeRateCsvText] =
+          await Promise.all([
+            selectedSalesFile.text(),
+            selectedReleasesFile.text(),
+            selectedHistoricalPriceFile.text(),
+            selectedExchangeRateFile.text(),
+          ])
+        const nextParsedSalesFile = parseShareworksCsv(salesCsvText)
+        const nextParsedReleasesFile = parseShareworksReleasesCsv(releasesCsvText)
+        const nextParsedHistoricalPriceFile = parseHistoricalPriceCsv(historicalPriceCsvText, 'TEAM')
+        const nextParsedExchangeRateFile = parseExchangeRateCsv(exchangeRateCsvText)
+        const nextReleaseTransactions = deriveReleaseTransactions(nextParsedReleasesFile.rows)
+        const nextLongShareSales = deriveLongShareSaleTransactions(nextParsedSalesFile.rows)
+        const nextFifoReport = buildFifoReport([...nextReleaseTransactions, ...nextLongShareSales])
+
+        setParsedIbkrFile(null)
+        setParsedSalesFile(nextParsedSalesFile)
+        setParsedReleasesFile(nextParsedReleasesFile)
+        setParsedHistoricalPriceFile(nextParsedHistoricalPriceFile)
+        setParsedExchangeRateFile(nextParsedExchangeRateFile)
+        setGeneratedBroker('shareworks')
+        setActiveTab('overview')
+        setLogs(
+          buildParseLogs(
+            nextParsedSalesFile,
+            selectedSalesFile.name,
+            nextParsedReleasesFile,
+            selectedReleasesFile.name,
+            nextParsedHistoricalPriceFile,
+            selectedHistoricalPriceFile.name,
+            nextParsedExchangeRateFile,
+            selectedExchangeRateFile.name,
+            nextReleaseTransactions,
+            nextLongShareSales,
+            nextFifoReport,
+          ),
+        )
+        return
+      }
+
+      if (selectedBroker === 'ibkr') {
+        if (!selectedIbkrFile || ibkrSymbols.length === 0 || ibkrHistoricalFiles.some((file) => !file)) {
+          return
+        }
+
+        const [ibkrCsvText, exchangeRateCsvText, ...historicalPriceCsvTexts] = await Promise.all([
+          selectedIbkrFile.text(),
+          selectedExchangeRateFile.text(),
+          ...ibkrHistoricalFiles.map((file) => file!.text()),
+        ])
+
+        const nextParsedIbkrFile = parseIbkrTransactionsCsv(ibkrCsvText)
+        const nextParsedExchangeRateFile = parseExchangeRateCsv(exchangeRateCsvText)
+        const parsedHistoricalPriceFiles = nextParsedIbkrFile.uniqueSymbols.map((symbol, index) =>
+          parseHistoricalPriceCsv(historicalPriceCsvTexts[index], symbol),
+        )
+        const nextParsedHistoricalPriceFile: ParsedHistoricalPriceFile = {
+          reportName: 'Historical Prices',
+          rows: parsedHistoricalPriceFiles
+            .flatMap((file) => file.rows)
+            .sort((left, right) =>
+              left.stockSymbol === right.stockSymbol
+                ? left.date.localeCompare(right.date)
+                : left.stockSymbol.localeCompare(right.stockSymbol),
+            ),
+        }
+        const nextIbkrTransactions = deriveIbkrTransactions(nextParsedIbkrFile.rows)
+        const nextFifoReport = buildFifoReport(nextIbkrTransactions)
+
+        setParsedSalesFile(null)
+        setParsedReleasesFile(null)
+        setParsedIbkrFile(nextParsedIbkrFile)
+        setParsedHistoricalPriceFile(nextParsedHistoricalPriceFile)
+        setParsedExchangeRateFile(nextParsedExchangeRateFile)
+        setGeneratedBroker('ibkr')
+        setActiveTab('overview')
+        setLogs(
+          buildIbkrParseLogs(
+            nextParsedIbkrFile,
+            selectedIbkrFile.name,
+            parsedHistoricalPriceFiles,
+            nextParsedExchangeRateFile,
+            selectedExchangeRateFile.name,
+            nextIbkrTransactions,
+            nextFifoReport,
+          ),
+        )
+        return
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to parse the selected file.'
+      setGeneratedBroker(null)
+      setParsedIbkrFile(null)
       setParsedSalesFile(null)
       setParsedReleasesFile(null)
       setParsedHistoricalPriceFile(null)
@@ -1878,10 +2210,14 @@ function App() {
   function handleBrokerChange(event: ChangeEvent<HTMLSelectElement>) {
     const nextBroker = event.target.value as BrokerType | ''
     setSelectedBroker(nextBroker)
+    setGeneratedBroker(null)
+    setSelectedIbkrFile(null)
     setSelectedSalesFile(null)
     setSelectedReleasesFile(null)
     setSelectedHistoricalPriceFile(null)
+    setSelectedHistoricalPriceFilesBySymbol({})
     setSelectedExchangeRateFile(null)
+    setParsedIbkrFile(null)
     setParsedSalesFile(null)
     setParsedReleasesFile(null)
     setParsedHistoricalPriceFile(null)
@@ -1891,7 +2227,9 @@ function App() {
         ? [
             createLog(
               'info',
-              'Broker selected: Shareworks. Upload releases, long-share sales, historical-price, and USD/INR rate CSV files next.',
+              nextBroker === 'shareworks'
+                ? 'Broker selected: Shareworks. Upload releases, long-share sales, historical TEAM price, and USD/INR rate CSV files next.'
+                : 'Broker selected: IBKR. Upload the consolidated transactions CSV first, then upload one historical price CSV for each discovered symbol plus the USD/INR rate CSV.',
             ),
           ]
         : [],
@@ -2037,6 +2375,11 @@ function App() {
                   <p>These rows later get matched through FIFO in the builder.</p>
                 </article>
                 <article className="summary-card">
+                  <span className="summary-label">IBKR transactions</span>
+                  <strong>Consolidated trade export</strong>
+                  <p>Shows the single-file transaction format used to discover symbols and trades.</p>
+                </article>
+                <article className="summary-card">
                   <span className="summary-label">Historical prices</span>
                   <strong>TEAM daily price data</strong>
                   <p>Used for max-price and closing-price calculations in Schedule FA.</p>
@@ -2152,9 +2495,11 @@ function App() {
               <div className="section-copy">
                 <h3>Required uploads</h3>
                 <p>
-                  {isBrokerSelected
+                  {isShareworksSelected
                     ? `You have selected ${BROKER_OPTIONS[0].label}. Upload all four CSV files below.`
-                    : 'Start with the USD/INR rate file. Shareworks-specific inputs appear after choosing the broker.'}
+                    : isIbkrSelected
+                      ? 'Upload the IBKR transactions CSV to discover symbols, then upload one historical price CSV for each symbol.'
+                      : 'Start with the USD/INR rate file. Broker-specific inputs appear after choosing a broker.'}
                 </p>
               </div>
 
@@ -2167,32 +2512,53 @@ function App() {
                   statusLabel={selectedExchangeRateFile ? 'Selected' : 'Required'}
                   onChange={handleExchangeRateFileSelect}
                 />
-                <UploadFieldCard
-                  label="RSU Releases CSV"
-                  helperText="Provides vesting, sell-to-cover, and held-share acquisition lots."
-                  file={selectedReleasesFile}
-                  status={selectedReleasesFile ? 'ready' : isBrokerSelected ? 'pending' : 'locked'}
-                  statusLabel={selectedReleasesFile ? 'Selected' : isBrokerSelected ? 'Required' : 'Locked'}
-                  onChange={handleReleasesFileSelect}
-                />
-                <UploadFieldCard
-                  label="Long Shares Sales CSV"
-                  helperText="Provides later long-share disposals that get matched through FIFO."
-                  file={selectedSalesFile}
-                  status={selectedSalesFile ? 'ready' : isBrokerSelected ? 'pending' : 'locked'}
-                  statusLabel={selectedSalesFile ? 'Selected' : isBrokerSelected ? 'Required' : 'Locked'}
-                  onChange={handleSalesFileSelect}
-                />
-                <UploadFieldCard
-                  label="Historical TEAM Price"
-                  helperText="Used for max-price and closing-price lookups in Schedule FA A3."
-                  file={selectedHistoricalPriceFile}
-                  status={selectedHistoricalPriceFile ? 'ready' : isBrokerSelected ? 'pending' : 'locked'}
-                  statusLabel={
-                    selectedHistoricalPriceFile ? 'Selected' : isBrokerSelected ? 'Required' : 'Locked'
-                  }
-                  onChange={handleHistoricalPriceFileSelect}
-                />
+                {isShareworksSelected ? (
+                  <>
+                    <UploadFieldCard
+                      label="RSU Releases CSV"
+                      helperText="Provides vesting, sell-to-cover, and held-share acquisition lots."
+                      file={selectedReleasesFile}
+                      status={selectedReleasesFile ? 'ready' : 'pending'}
+                      statusLabel={selectedReleasesFile ? 'Selected' : 'Required'}
+                      onChange={handleReleasesFileSelect}
+                    />
+                    <UploadFieldCard
+                      label="Long Shares Sales CSV"
+                      helperText="Provides later long-share disposals that get matched through FIFO."
+                      file={selectedSalesFile}
+                      status={selectedSalesFile ? 'ready' : 'pending'}
+                      statusLabel={selectedSalesFile ? 'Selected' : 'Required'}
+                      onChange={handleSalesFileSelect}
+                    />
+                    <UploadFieldCard
+                      label="Historical TEAM Price"
+                      helperText="Used for max-price and closing-price lookups in Schedule FA A3."
+                      file={selectedHistoricalPriceFile}
+                      status={selectedHistoricalPriceFile ? 'ready' : 'pending'}
+                      statusLabel={selectedHistoricalPriceFile ? 'Selected' : 'Required'}
+                      onChange={handleHistoricalPriceFileSelect}
+                    />
+                  </>
+                ) : null}
+                {isIbkrSelected ? (
+                  <>
+                    <UploadFieldCard
+                      label="IBKR Transactions CSV"
+                      helperText="Upload the consolidated transaction history export. Buy and sell rows will be used; dividends and cash movements are ignored here."
+                      file={selectedIbkrFile}
+                      status={selectedIbkrFile ? 'ready' : 'pending'}
+                      statusLabel={selectedIbkrFile ? 'Selected' : 'Required'}
+                      onChange={(event) => {
+                        void handleIbkrFileSelect(event)
+                      }}
+                    />
+                    <SymbolHistoricalPriceUploadCard
+                      symbols={ibkrSymbols}
+                      filesBySymbol={selectedHistoricalPriceFilesBySymbol}
+                      onChangeForSymbol={handleHistoricalPriceFileSelectForSymbol}
+                    />
+                  </>
+                ) : null}
               </div>
             </div>
 
@@ -2218,8 +2584,9 @@ function App() {
 
             {!hasGeneratedReport ? (
               <p className="status-message">
-                Select a broker, upload the required CSV files, adjust the assessment year if
-                needed, and then click `Generate report`.
+                {isIbkrSelected
+                  ? 'Select IBKR, upload the transactions file to discover symbols, add one historical price CSV per symbol, then click `Generate report`.'
+                  : 'Select a broker, upload the required CSV files, adjust the assessment year if needed, and then click `Generate report`.'}
               </p>
             ) : null}
               </section>
@@ -2243,9 +2610,13 @@ function App() {
             </strong>
           </article>
           <article className="summary-card">
-            <span className="summary-label">Releases / Sales rows</span>
+            <span className="summary-label">
+              {isIbkrSelected ? 'Trades / Symbols' : 'Releases / Sales rows'}
+            </span>
             <strong>
-              {parsedReleasesFile?.rows.length ?? 0} / {parsedSalesFile?.rows.length ?? 0}
+              {isIbkrSelected
+                ? `${parsedIbkrFile?.rows.length ?? 0} / ${parsedIbkrFile?.uniqueSymbols.length ?? 0}`
+                : `${parsedReleasesFile?.rows.length ?? 0} / ${parsedSalesFile?.rows.length ?? 0}`}
             </strong>
           </article>
           <article className="summary-card">
@@ -2257,15 +2628,21 @@ function App() {
             <strong>{parsedExchangeRateFile?.rows.length ?? 0}</strong>
           </article>
           <article className="summary-card">
-            <span className="summary-label">Held lots / Cover sales</span>
+            <span className="summary-label">
+              {isIbkrSelected ? 'Buy / Sell trades' : 'Held lots / Cover sales'}
+            </span>
             <strong>
-              {heldTransactions.length} / {sellToCoverTransactions.length}
+              {isIbkrSelected
+                ? `${heldTransactions.length} / ${sellTransactions.length}`
+                : `${heldTransactions.length} / ${sellToCoverTransactions.length}`}
             </strong>
           </article>
           <article className="summary-card">
             <span className="summary-label">Ignored rows</span>
             <strong>
-              {(parsedReleasesFile?.ignoredRowCount ?? 0) + (parsedSalesFile?.ignoredRowCount ?? 0)}
+              {isIbkrSelected
+                ? parsedIbkrFile?.ignoredRowCount ?? 0
+                : (parsedReleasesFile?.ignoredRowCount ?? 0) + (parsedSalesFile?.ignoredRowCount ?? 0)}
             </strong>
           </article>
             </div>

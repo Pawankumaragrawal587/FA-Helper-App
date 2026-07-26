@@ -4,6 +4,7 @@ function buildSellTransaction(row: ShareworksSaleRecord): NormalizedTransaction 
   return {
     id: `${row.withdrawalReferenceNumber}-${row.sourceRowNumber}-sell`,
     broker: row.broker,
+    stockSymbol: row.stockSymbol,
     transactionType: 'SELL',
     grantName: row.grantName,
     grantNumber: row.employeeGrantNumber,

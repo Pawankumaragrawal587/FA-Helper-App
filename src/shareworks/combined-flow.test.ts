@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import { buildFifoReport } from './fifo'
+import { buildFifoReport } from '../common/fifo'
 import { parseShareworksCsv } from './parser'
 import { deriveReleaseTransactions, parseShareworksReleasesCsv } from './releases'
 import { deriveLongShareSaleTransactions } from './transform'

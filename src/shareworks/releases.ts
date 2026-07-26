@@ -124,6 +124,7 @@ function validateHeaderRow(headerRow: string[]): void {
 function mapRowToReleaseRecord(row: string[], sourceRowNumber: number): ShareworksReleaseRecord {
   return {
     broker: 'shareworks',
+    stockSymbol: 'TEAM',
     sourceRowNumber,
     periodStartDate: parseShareworksDate(getCell(row, 0)),
     periodEndDate: parseShareworksDate(getCell(row, 1)),
@@ -215,6 +216,7 @@ export function deriveReleaseTransactions(
       transactions.push({
         id: `${row.releaseReferenceNumber}-${row.sourceRowNumber}-held`,
         broker: row.broker,
+        stockSymbol: row.stockSymbol,
         transactionType: 'ACQUIRE',
         grantName: row.grantName,
         grantNumber: row.grantNumber,
@@ -235,6 +237,7 @@ export function deriveReleaseTransactions(
       transactions.push({
         id: `${row.releaseReferenceNumber}-${row.sourceRowNumber}-cover`,
         broker: row.broker,
+        stockSymbol: row.stockSymbol,
         transactionType: 'SELL_TO_COVER',
         grantName: row.grantName,
         grantNumber: row.grantNumber,

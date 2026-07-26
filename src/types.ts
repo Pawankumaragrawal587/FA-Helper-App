@@ -1,9 +1,10 @@
-export type BrokerType = 'shareworks'
+export type BrokerType = 'shareworks' | 'ibkr'
 
 export type TransactionType = 'ACQUIRE' | 'SELL' | 'SELL_TO_COVER'
 
 export interface ShareworksSaleRecord {
   broker: BrokerType
+  stockSymbol: string
   sourceRowNumber: number
   periodStartDate: string
   periodEndDate: string
@@ -34,6 +35,7 @@ export interface ParsedShareworksFile {
 
 export interface ShareworksReleaseRecord {
   broker: BrokerType
+  stockSymbol: string
   sourceRowNumber: number
   periodStartDate: string
   periodEndDate: string
@@ -62,7 +64,30 @@ export interface ParsedShareworksReleasesFile {
   ignoredRows: IgnoredRowDetail[]
 }
 
+export interface IbkrTransactionRecord {
+  broker: BrokerType
+  stockSymbol: string
+  sourceRowNumber: number
+  tradeDate: string
+  description: string
+  transactionTypeLabel: string
+  quantity: number
+  pricePerShareUsd: number
+  grossAmountUsd: number
+  commissionUsd: number
+  netAmountUsd: number
+}
+
+export interface ParsedIbkrFile {
+  reportName: string
+  rows: IbkrTransactionRecord[]
+  uniqueSymbols: string[]
+  ignoredRowCount: number
+  ignoredRows: IgnoredRowDetail[]
+}
+
 export interface HistoricalPriceRow {
+  stockSymbol: string
   date: string
   closePriceUsd: number
   highPriceUsd: number
@@ -92,6 +117,7 @@ export interface IgnoredRowDetail {
 export interface NormalizedTransaction {
   id: string
   broker: BrokerType
+  stockSymbol: string
   transactionType: TransactionType
   grantName: string
   grantNumber: string
@@ -111,6 +137,7 @@ export interface FifoMatchedLot {
   id: string
   acquisitionTransactionId: string
   sellTransactionId: string
+  stockSymbol: string
   grantName: string
   grantNumber: string
   buyDate: string
@@ -129,6 +156,7 @@ export interface FifoMatchedLot {
 
 export interface OpenHolding {
   id: string
+  stockSymbol: string
   grantName: string
   grantNumber: string
   buyDate: string

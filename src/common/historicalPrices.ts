@@ -31,7 +31,10 @@ function parseUsDate(value: string): string {
   return date.toISOString().slice(0, 10)
 }
 
-export function parseHistoricalPriceCsv(csvText: string): ParsedHistoricalPriceFile {
+export function parseHistoricalPriceCsv(
+  csvText: string,
+  stockSymbol = 'TEAM',
+): ParsedHistoricalPriceFile {
   const result = Papa.parse<Record<string, string>>(csvText, {
     header: true,
     skipEmptyLines: true,
@@ -45,6 +48,7 @@ export function parseHistoricalPriceCsv(csvText: string): ParsedHistoricalPriceF
   const rows: HistoricalPriceRow[] = result.data
     .filter((row) => row.Date && row['Close/Last'] && row.High)
     .map((row) => ({
+      stockSymbol,
       date: parseUsDate(row.Date),
       closePriceUsd: parseUsdAmount(row['Close/Last']),
       highPriceUsd: parseUsdAmount(row.High),
