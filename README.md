@@ -47,6 +47,21 @@ npm test
 npm run lint
 ```
 
+## Deploy to GitHub Pages
+
+This repo is configured for GitHub Pages deployment through GitHub Actions.
+
+After pushing to GitHub:
+
+1. Open the repository on GitHub.
+2. Go to `Settings` -> `Pages`.
+3. Under `Build and deployment`, choose `GitHub Actions`.
+4. Push to `main` again, or manually run the `Deploy to GitHub Pages` workflow.
+
+The app is configured to deploy under the repo path:
+
+`/FA-Helper-App/`
+
 ## Data Files
 
 The app expects these CSVs to be uploaded through the UI at runtime:
