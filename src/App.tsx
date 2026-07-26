@@ -1,4 +1,4 @@
-import { useMemo, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import Papa from 'papaparse'
 
 import './App.css'
@@ -33,6 +33,7 @@ const BROKER_OPTIONS: Array<{ value: BrokerType; label: string }> = [
 
 type LogLevel = 'info' | 'warning' | 'error'
 type ReportTabId = 'overview' | 'faA3' | 'capitalGains'
+type AppPageId = 'landing' | 'builder'
 
 interface CsvColumn<T> {
   header: string
@@ -120,6 +121,8 @@ interface AssessmentYearContext {
   financialEnd: string
 }
 
+type UploadStatus = 'pending' | 'ready' | 'locked'
+
 function formatUsd(value: number): string {
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
@@ -169,6 +172,18 @@ function downloadCsvFile<T>(fileName: string, columns: CsvColumn<T>[], rows: T[]
   anchor.download = `${sanitizeFileName(fileName)}.csv`
   anchor.click()
   URL.revokeObjectURL(url)
+}
+
+function formatFileSize(sizeInBytes: number): string {
+  if (sizeInBytes < 1024) {
+    return `${sizeInBytes} B`
+  }
+
+  if (sizeInBytes < 1024 * 1024) {
+    return `${(sizeInBytes / 1024).toFixed(1)} KB`
+  }
+
+  return `${(sizeInBytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function createLog(level: LogLevel, message: string): UiLogEntry {
@@ -252,6 +267,60 @@ function inferAssessmentYearStart(
 function buildAssessmentYearOptions(suggestedStartYear: number): string[] {
   return [suggestedStartYear - 1, suggestedStartYear, suggestedStartYear + 1].map((year) =>
     buildAssessmentYearLabel(year),
+  )
+}
+
+function getPageFromHash(hash: string): AppPageId {
+  return hash === '#app' ? 'builder' : 'landing'
+}
+
+function UploadFieldCard({
+  label,
+  helperText,
+  file,
+  status,
+  statusLabel,
+  onChange,
+}: {
+  label: string
+  helperText: string
+  file: File | null
+  status: UploadStatus
+  statusLabel: string
+  onChange: (event: ChangeEvent<HTMLInputElement>) => void
+}) {
+  return (
+    <label className={`upload-card ${status}`}>
+      <div className="upload-card-header">
+        <div>
+          <span className="upload-card-label">{label}</span>
+          <p className="upload-card-helper">{helperText}</p>
+        </div>
+        <span className={`status-pill ${status}`}>{statusLabel}</span>
+      </div>
+      <input type="file" accept=".csv,text/csv" onChange={onChange} />
+      <div className="upload-card-meta">
+        {file ? (
+          <>
+            <strong>{file.name}</strong>
+            <span>{formatFileSize(file.size)}</span>
+          </>
+        ) : status === 'locked' ? (
+          <span>Select Shareworks to enable this file input.</span>
+        ) : (
+          <span>No file selected yet.</span>
+        )}
+      </div>
+    </label>
+  )
+}
+
+function EmptyTableState({ title, description }: { title: string; description: string }) {
+  return (
+    <div className="empty-table-state">
+      <strong>{title}</strong>
+      <p>{description}</p>
+    </div>
   )
 }
 
@@ -730,49 +799,56 @@ function FifoMatchesTable({
         </div>
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Buy Date</th>
-              <th>Sell Date</th>
-              <th>Grant</th>
-              <th>Shares Matched</th>
-              <th>Buy Price</th>
-              <th>Sell Price</th>
-              <th>Buy Amount</th>
-              <th>Sell Amount</th>
-              <th>Gain / Loss</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedMatchedLots.map((matchedLot) => (
-              <tr key={matchedLot.id}>
-                <td>{formatUiDate(matchedLot.buyDate)}</td>
-                <td>{formatUiDate(matchedLot.sellDate)}</td>
-                <td>{matchedLot.grantName}</td>
-                <td>{matchedLot.sharesMatched}</td>
-                <td>{formatUsd(matchedLot.buyPricePerShareUsd)}</td>
-                <td>{formatUsd(matchedLot.sellPricePerShareUsd)}</td>
-                <td>{formatUsd(matchedLot.buyAmountUsd)}</td>
-                <td>{formatUsd(matchedLot.sellAmountUsd)}</td>
-                <td>{formatUsd(matchedLot.gainOrLossUsd)}</td>
+      {sortedMatchedLots.length === 0 ? (
+        <EmptyTableState
+          title="No FIFO rows for this year"
+          description="Long-share sales that fall inside the selected financial year will appear here after report generation."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Buy Date</th>
+                <th>Sell Date</th>
+                <th>Grant</th>
+                <th>Shares Matched</th>
+                <th>Buy Price</th>
+                <th>Sell Price</th>
+                <th>Buy Amount</th>
+                <th>Sell Amount</th>
+                <th>Gain / Loss</th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={3}>Totals</td>
-              <td>{totalSharesMatched}</td>
-              <td></td>
-              <td></td>
-              <td>{formatUsd(totalBuyAmountUsd)}</td>
-              <td>{formatUsd(totalSellAmountUsd)}</td>
-              <td>{formatUsd(totalGainOrLossUsd)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {sortedMatchedLots.map((matchedLot) => (
+                <tr key={matchedLot.id}>
+                  <td>{formatUiDate(matchedLot.buyDate)}</td>
+                  <td>{formatUiDate(matchedLot.sellDate)}</td>
+                  <td>{matchedLot.grantName}</td>
+                  <td>{matchedLot.sharesMatched}</td>
+                  <td>{formatUsd(matchedLot.buyPricePerShareUsd)}</td>
+                  <td>{formatUsd(matchedLot.sellPricePerShareUsd)}</td>
+                  <td>{formatUsd(matchedLot.buyAmountUsd)}</td>
+                  <td>{formatUsd(matchedLot.sellAmountUsd)}</td>
+                  <td>{formatUsd(matchedLot.gainOrLossUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}>Totals</td>
+                <td>{totalSharesMatched}</td>
+                <td></td>
+                <td></td>
+                <td>{formatUsd(totalBuyAmountUsd)}</td>
+                <td>{formatUsd(totalSellAmountUsd)}</td>
+                <td>{formatUsd(totalGainOrLossUsd)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </section>
   )
 }
@@ -823,49 +899,56 @@ function SellToCoverTable({
         </div>
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Buy Date</th>
-              <th>Sell Date</th>
-              <th>Grant</th>
-              <th>Shares Matched</th>
-              <th>Buy Price</th>
-              <th>Sell Price</th>
-              <th>Buy Amount</th>
-              <th>Sell Amount</th>
-              <th>Gain / Loss</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedSellToCoverRows.map((row) => (
-              <tr key={row.id}>
-                <td>{formatUiDate(row.buyDate)}</td>
-                <td>{formatUiDate(row.sellDate)}</td>
-                <td>{row.grantName}</td>
-                <td>{row.sharesMatched}</td>
-                <td>{formatUsd(row.buyPricePerShareUsd)}</td>
-                <td>{formatUsd(row.sellPricePerShareUsd)}</td>
-                <td>{formatUsd(row.buyAmountUsd)}</td>
-                <td>{formatUsd(row.sellAmountUsd)}</td>
-                <td>{formatUsd(row.gainOrLossUsd)}</td>
+      {sortedSellToCoverRows.length === 0 ? (
+        <EmptyTableState
+          title="No sell-to-cover rows for this year"
+          description="Sell-to-cover releases that fall inside the selected financial year will appear here."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Buy Date</th>
+                <th>Sell Date</th>
+                <th>Grant</th>
+                <th>Shares Matched</th>
+                <th>Buy Price</th>
+                <th>Sell Price</th>
+                <th>Buy Amount</th>
+                <th>Sell Amount</th>
+                <th>Gain / Loss</th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={3}>Totals</td>
-              <td>{totalShares}</td>
-              <td></td>
-              <td></td>
-              <td>{formatUsd(totalBuyAmountUsd)}</td>
-              <td>{formatUsd(totalSellAmountUsd)}</td>
-              <td>{formatUsd(totalGainOrLossUsd)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {sortedSellToCoverRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{formatUiDate(row.buyDate)}</td>
+                  <td>{formatUiDate(row.sellDate)}</td>
+                  <td>{row.grantName}</td>
+                  <td>{row.sharesMatched}</td>
+                  <td>{formatUsd(row.buyPricePerShareUsd)}</td>
+                  <td>{formatUsd(row.sellPricePerShareUsd)}</td>
+                  <td>{formatUsd(row.buyAmountUsd)}</td>
+                  <td>{formatUsd(row.sellAmountUsd)}</td>
+                  <td>{formatUsd(row.gainOrLossUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}>Totals</td>
+                <td>{totalShares}</td>
+                <td></td>
+                <td></td>
+                <td>{formatUsd(totalBuyAmountUsd)}</td>
+                <td>{formatUsd(totalSellAmountUsd)}</td>
+                <td>{formatUsd(totalGainOrLossUsd)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </section>
   )
 }
@@ -926,70 +1009,77 @@ function CapitalGainsTable({
         </div>
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Buy Date</th>
-              <th>Sell Date</th>
-              <th>Grant</th>
-              <th>Shares Matched</th>
-              <th>Buy Price</th>
-              <th>Buy Amount USD</th>
-              <th>Buy FX Rate</th>
-              <th>Buy FX Date</th>
-              <th>Buy Amount INR</th>
-              <th>Sell Price</th>
-              <th>Sell Amount USD</th>
-              <th>Sell FX Rate</th>
-              <th>Sell FX Date</th>
-              <th>Sell Amount INR</th>
-              <th>Gain / Loss USD</th>
-              <th>Gain / Loss INR</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedRows.map((row) => (
-              <tr key={row.id}>
-                <td>{formatUiDate(row.buyDate)}</td>
-                <td>{formatUiDate(row.sellDate)}</td>
-                <td>{row.grantName}</td>
-                <td>{row.sharesMatched}</td>
-                <td>{formatUsd(row.buyPricePerShareUsd)}</td>
-                <td>{formatUsd(row.buyAmountUsd)}</td>
-                <td>{row.buyFxRate !== null ? row.buyFxRate.toFixed(2) : '-'}</td>
-                <td>{row.buyFxRateDate ? formatUiDate(row.buyFxRateDate) : '-'}</td>
-                <td>{row.buyAmountInr !== null ? formatInr(row.buyAmountInr) : '-'}</td>
-                <td>{formatUsd(row.sellPricePerShareUsd)}</td>
-                <td>{formatUsd(row.sellAmountUsd)}</td>
-                <td>{row.sellFxRate !== null ? row.sellFxRate.toFixed(2) : '-'}</td>
-                <td>{row.sellFxRateDate ? formatUiDate(row.sellFxRateDate) : '-'}</td>
-                <td>{row.sellAmountInr !== null ? formatInr(row.sellAmountInr) : '-'}</td>
-                <td>{formatUsd(row.gainOrLossUsd)}</td>
-                <td>{row.gainOrLossInr !== null ? formatInr(row.gainOrLossInr) : '-'}</td>
+      {sortedRows.length === 0 ? (
+        <EmptyTableState
+          title="No capital gains rows in this view"
+          description="Transactions inside the selected financial year will appear here after the report is generated."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Buy Date</th>
+                <th>Sell Date</th>
+                <th>Grant</th>
+                <th>Shares Matched</th>
+                <th>Buy Price</th>
+                <th>Buy Amount USD</th>
+                <th>Buy FX Rate</th>
+                <th>Buy FX Date</th>
+                <th>Buy Amount INR</th>
+                <th>Sell Price</th>
+                <th>Sell Amount USD</th>
+                <th>Sell FX Rate</th>
+                <th>Sell FX Date</th>
+                <th>Sell Amount INR</th>
+                <th>Gain / Loss USD</th>
+                <th>Gain / Loss INR</th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={3}>Totals</td>
-              <td>{totalShares}</td>
-              <td></td>
-              <td>{formatUsd(totalBuyAmountUsd)}</td>
-              <td></td>
-              <td></td>
-              <td>{formatInr(totalBuyAmountInr)}</td>
-              <td></td>
-              <td>{formatUsd(totalSellAmountUsd)}</td>
-              <td></td>
-              <td></td>
-              <td>{formatInr(totalSellAmountInr)}</td>
-              <td>{formatUsd(totalGainOrLossUsd)}</td>
-              <td>{formatInr(totalGainOrLossInr)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {sortedRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{formatUiDate(row.buyDate)}</td>
+                  <td>{formatUiDate(row.sellDate)}</td>
+                  <td>{row.grantName}</td>
+                  <td>{row.sharesMatched}</td>
+                  <td>{formatUsd(row.buyPricePerShareUsd)}</td>
+                  <td>{formatUsd(row.buyAmountUsd)}</td>
+                  <td>{row.buyFxRate !== null ? row.buyFxRate.toFixed(2) : '-'}</td>
+                  <td>{row.buyFxRateDate ? formatUiDate(row.buyFxRateDate) : '-'}</td>
+                  <td>{row.buyAmountInr !== null ? formatInr(row.buyAmountInr) : '-'}</td>
+                  <td>{formatUsd(row.sellPricePerShareUsd)}</td>
+                  <td>{formatUsd(row.sellAmountUsd)}</td>
+                  <td>{row.sellFxRate !== null ? row.sellFxRate.toFixed(2) : '-'}</td>
+                  <td>{row.sellFxRateDate ? formatUiDate(row.sellFxRateDate) : '-'}</td>
+                  <td>{row.sellAmountInr !== null ? formatInr(row.sellAmountInr) : '-'}</td>
+                  <td>{formatUsd(row.gainOrLossUsd)}</td>
+                  <td>{row.gainOrLossInr !== null ? formatInr(row.gainOrLossInr) : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={3}>Totals</td>
+                <td>{totalShares}</td>
+                <td></td>
+                <td>{formatUsd(totalBuyAmountUsd)}</td>
+                <td></td>
+                <td></td>
+                <td>{formatInr(totalBuyAmountInr)}</td>
+                <td></td>
+                <td>{formatUsd(totalSellAmountUsd)}</td>
+                <td></td>
+                <td></td>
+                <td>{formatInr(totalSellAmountInr)}</td>
+                <td>{formatUsd(totalGainOrLossUsd)}</td>
+                <td>{formatInr(totalGainOrLossInr)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </section>
   )
 }
@@ -1034,38 +1124,45 @@ function OpenHoldingsTable({
         </div>
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Buy Date</th>
-              <th>Grant</th>
-              <th>Shares Remaining</th>
-              <th>Buy Price</th>
-              <th>Cost Basis</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedOpenHoldings.map((holding) => (
-              <tr key={holding.id}>
-                <td>{formatUiDate(holding.buyDate)}</td>
-                <td>{holding.grantName}</td>
-                <td>{holding.sharesRemaining}</td>
-                <td>{formatUsd(holding.buyPricePerShareUsd)}</td>
-                <td>{formatUsd(holding.costBasisUsd)}</td>
+      {sortedOpenHoldings.length === 0 ? (
+        <EmptyTableState
+          title="No open holdings"
+          description="Any shares still held at the selected calendar-year end will appear here."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Buy Date</th>
+                <th>Grant</th>
+                <th>Shares Remaining</th>
+                <th>Buy Price</th>
+                <th>Cost Basis</th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={2}>Totals</td>
-              <td>{totalSharesRemaining}</td>
-              <td></td>
-              <td>{formatUsd(totalCostBasisUsd)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {sortedOpenHoldings.map((holding) => (
+                <tr key={holding.id}>
+                  <td>{formatUiDate(holding.buyDate)}</td>
+                  <td>{holding.grantName}</td>
+                  <td>{holding.sharesRemaining}</td>
+                  <td>{formatUsd(holding.buyPricePerShareUsd)}</td>
+                  <td>{formatUsd(holding.costBasisUsd)}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={2}>Totals</td>
+                <td>{totalSharesRemaining}</td>
+                <td></td>
+                <td>{formatUsd(totalCostBasisUsd)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </section>
   )
 }
@@ -1134,106 +1231,114 @@ function ScheduleFaTable({
         </div>
       </div>
 
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Holding Type</th>
-              <th>Buy Date</th>
-              <th>Sell Date</th>
-              <th>Grant</th>
-              <th>Shares</th>
-              <th>Buy Price</th>
-              <th>Buy Amount USD</th>
-              <th>Buy FX Rate</th>
-              <th>Buy FX Date</th>
-              <th>Buy Amount INR</th>
-              <th>Sell Price</th>
-              <th>Sell Amount USD</th>
-              <th>Sell FX Rate</th>
-              <th>Sell FX Date</th>
-              <th>Sell Amount INR</th>
-              <th>Max Price / Share</th>
-              <th>Max Price Date</th>
-              <th>Max Amount USD</th>
-              <th>Max FX Rate</th>
-              <th>Max FX Date</th>
-              <th>Max Amount INR</th>
-              <th>Closing Price</th>
-              <th>Closing Amount USD</th>
-              <th>Closing FX Rate</th>
-              <th>Closing FX Date</th>
-              <th>Closing Amount INR</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sortedRows.map((row) => (
-              <tr key={row.id}>
-                <td>{row.holdingType}</td>
-                <td>{formatUiDate(row.buyDate)}</td>
-                <td>{row.sellDate ? formatUiDate(row.sellDate) : '-'}</td>
-                <td>{row.grantName}</td>
-                <td>{row.shares}</td>
-                <td>{formatUsd(row.buyPricePerShareUsd)}</td>
-                <td>{formatUsd(row.buyAmountUsd)}</td>
-                <td>{row.buyFxRate !== null ? row.buyFxRate.toFixed(2) : '-'}</td>
-                <td>{row.buyFxRateDate ? formatUiDate(row.buyFxRateDate) : '-'}</td>
-                <td>{row.buyAmountInr !== null ? formatInr(row.buyAmountInr) : '-'}</td>
-                <td>{row.sellPricePerShareUsd !== null ? formatUsd(row.sellPricePerShareUsd) : '-'}</td>
-                <td>{row.sellAmountUsd !== null ? formatUsd(row.sellAmountUsd) : '-'}</td>
-                <td>{row.sellFxRate !== null ? row.sellFxRate.toFixed(2) : '-'}</td>
-                <td>{row.sellFxRateDate ? formatUiDate(row.sellFxRateDate) : '-'}</td>
-                <td>{row.sellAmountInr !== null ? formatInr(row.sellAmountInr) : '-'}</td>
-                <td>{row.maxPricePerShareUsd !== null ? formatUsd(row.maxPricePerShareUsd) : '-'}</td>
-                <td>{row.maxPriceDate ? formatUiDate(row.maxPriceDate) : '-'}</td>
-                <td>{row.maxAmountUsd !== null ? formatUsd(row.maxAmountUsd) : '-'}</td>
-                <td>{row.maxFxRate !== null ? row.maxFxRate.toFixed(2) : '-'}</td>
-                <td>{row.maxFxRateDate ? formatUiDate(row.maxFxRateDate) : '-'}</td>
-                <td>{row.maxAmountInr !== null ? formatInr(row.maxAmountInr) : '-'}</td>
-                <td>
-                  {row.closingPricePerShareUsd !== null ? formatUsd(row.closingPricePerShareUsd) : '-'}
-                </td>
-                <td>{row.closingAmountUsd !== null ? formatUsd(row.closingAmountUsd) : '-'}</td>
-                <td>{row.closingFxRate !== null ? row.closingFxRate.toFixed(2) : '-'}</td>
-                <td>{row.closingFxRateDate ? formatUiDate(row.closingFxRateDate) : '-'}</td>
-                <td>{row.closingAmountInr !== null ? formatInr(row.closingAmountInr) : '-'}</td>
+      {sortedRows.length === 0 ? (
+        <EmptyTableState
+          title="No Schedule FA rows in this year"
+          description="Any holding that overlaps the selected calendar year will appear here after the report is generated."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Holding Type</th>
+                <th>Buy Date</th>
+                <th>Sell Date</th>
+                <th>Grant</th>
+                <th>Shares</th>
+                <th>Buy Price</th>
+                <th>Buy Amount USD</th>
+                <th>Buy FX Rate</th>
+                <th>Buy FX Date</th>
+                <th>Buy Amount INR</th>
+                <th>Sell Price</th>
+                <th>Sell Amount USD</th>
+                <th>Sell FX Rate</th>
+                <th>Sell FX Date</th>
+                <th>Sell Amount INR</th>
+                <th>Max Price / Share</th>
+                <th>Max Price Date</th>
+                <th>Max Amount USD</th>
+                <th>Max FX Rate</th>
+                <th>Max FX Date</th>
+                <th>Max Amount INR</th>
+                <th>Closing Price</th>
+                <th>Closing Amount USD</th>
+                <th>Closing FX Rate</th>
+                <th>Closing FX Date</th>
+                <th>Closing Amount INR</th>
               </tr>
-            ))}
-          </tbody>
-          <tfoot>
-            <tr>
-              <td colSpan={4}>Totals</td>
-              <td>{totalShares}</td>
-              <td></td>
-              <td>{formatUsd(totalBuyAmountUsd)}</td>
-              <td></td>
-              <td></td>
-              <td>{formatInr(totalBuyAmountInr)}</td>
-              <td></td>
-              <td>{formatUsd(totalSellAmountUsd)}</td>
-              <td></td>
-              <td></td>
-              <td>{formatInr(totalSellAmountInr)}</td>
-              <td></td>
-              <td></td>
-              <td>{formatUsd(totalMaxAmountUsd)}</td>
-              <td></td>
-              <td></td>
-              <td>{formatInr(totalMaxAmountInr)}</td>
-              <td></td>
-              <td>{formatUsd(totalClosingAmountUsd)}</td>
-              <td></td>
-              <td></td>
-              <td>{formatInr(totalClosingAmountInr)}</td>
-            </tr>
-          </tfoot>
-        </table>
-      </div>
+            </thead>
+            <tbody>
+              {sortedRows.map((row) => (
+                <tr key={row.id}>
+                  <td>{row.holdingType}</td>
+                  <td>{formatUiDate(row.buyDate)}</td>
+                  <td>{row.sellDate ? formatUiDate(row.sellDate) : '-'}</td>
+                  <td>{row.grantName}</td>
+                  <td>{row.shares}</td>
+                  <td>{formatUsd(row.buyPricePerShareUsd)}</td>
+                  <td>{formatUsd(row.buyAmountUsd)}</td>
+                  <td>{row.buyFxRate !== null ? row.buyFxRate.toFixed(2) : '-'}</td>
+                  <td>{row.buyFxRateDate ? formatUiDate(row.buyFxRateDate) : '-'}</td>
+                  <td>{row.buyAmountInr !== null ? formatInr(row.buyAmountInr) : '-'}</td>
+                  <td>{row.sellPricePerShareUsd !== null ? formatUsd(row.sellPricePerShareUsd) : '-'}</td>
+                  <td>{row.sellAmountUsd !== null ? formatUsd(row.sellAmountUsd) : '-'}</td>
+                  <td>{row.sellFxRate !== null ? row.sellFxRate.toFixed(2) : '-'}</td>
+                  <td>{row.sellFxRateDate ? formatUiDate(row.sellFxRateDate) : '-'}</td>
+                  <td>{row.sellAmountInr !== null ? formatInr(row.sellAmountInr) : '-'}</td>
+                  <td>{row.maxPricePerShareUsd !== null ? formatUsd(row.maxPricePerShareUsd) : '-'}</td>
+                  <td>{row.maxPriceDate ? formatUiDate(row.maxPriceDate) : '-'}</td>
+                  <td>{row.maxAmountUsd !== null ? formatUsd(row.maxAmountUsd) : '-'}</td>
+                  <td>{row.maxFxRate !== null ? row.maxFxRate.toFixed(2) : '-'}</td>
+                  <td>{row.maxFxRateDate ? formatUiDate(row.maxFxRateDate) : '-'}</td>
+                  <td>{row.maxAmountInr !== null ? formatInr(row.maxAmountInr) : '-'}</td>
+                  <td>
+                    {row.closingPricePerShareUsd !== null ? formatUsd(row.closingPricePerShareUsd) : '-'}
+                  </td>
+                  <td>{row.closingAmountUsd !== null ? formatUsd(row.closingAmountUsd) : '-'}</td>
+                  <td>{row.closingFxRate !== null ? row.closingFxRate.toFixed(2) : '-'}</td>
+                  <td>{row.closingFxRateDate ? formatUiDate(row.closingFxRateDate) : '-'}</td>
+                  <td>{row.closingAmountInr !== null ? formatInr(row.closingAmountInr) : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr>
+                <td colSpan={4}>Totals</td>
+                <td>{totalShares}</td>
+                <td></td>
+                <td>{formatUsd(totalBuyAmountUsd)}</td>
+                <td></td>
+                <td></td>
+                <td>{formatInr(totalBuyAmountInr)}</td>
+                <td></td>
+                <td>{formatUsd(totalSellAmountUsd)}</td>
+                <td></td>
+                <td></td>
+                <td>{formatInr(totalSellAmountInr)}</td>
+                <td></td>
+                <td></td>
+                <td>{formatUsd(totalMaxAmountUsd)}</td>
+                <td></td>
+                <td></td>
+                <td>{formatInr(totalMaxAmountInr)}</td>
+                <td></td>
+                <td>{formatUsd(totalClosingAmountUsd)}</td>
+                <td></td>
+                <td></td>
+                <td>{formatInr(totalClosingAmountInr)}</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
     </section>
   )
 }
 
 function App() {
+  const [, setHashRefreshKey] = useState(0)
   const [selectedBroker, setSelectedBroker] = useState<BrokerType | ''>('')
   const [selectedSalesFile, setSelectedSalesFile] = useState<File | null>(null)
   const [selectedReleasesFile, setSelectedReleasesFile] = useState<File | null>(null)
@@ -1489,6 +1594,48 @@ function App() {
     () => [...logs, ...scheduleFaFxLogs, ...capitalGainsFxLogs],
     [capitalGainsFxLogs, logs, scheduleFaFxLogs],
   )
+  const isBrokerSelected = selectedBroker === 'shareworks'
+  const hasAllRequiredFiles = Boolean(
+    selectedBroker &&
+      selectedSalesFile &&
+      selectedReleasesFile &&
+      selectedHistoricalPriceFile &&
+      selectedExchangeRateFile,
+  )
+  const hasGeneratedReport = Boolean(
+    parsedSalesFile && parsedReleasesFile && parsedHistoricalPriceFile && parsedExchangeRateFile,
+  )
+  const uploadProgressCount = [
+    selectedExchangeRateFile,
+    isBrokerSelected ? selectedReleasesFile : true,
+    isBrokerSelected ? selectedSalesFile : true,
+    isBrokerSelected ? selectedHistoricalPriceFile : true,
+  ].filter(Boolean).length
+  const uploadProgressTotal = isBrokerSelected ? 4 : 1
+  const logCounts = useMemo(
+    () => ({
+      info: displayLogs.filter((log) => log.level === 'info').length,
+      warning: displayLogs.filter((log) => log.level === 'warning').length,
+      error: displayLogs.filter((log) => log.level === 'error').length,
+    }),
+    [displayLogs],
+  )
+  const currentPage = typeof window === 'undefined' ? 'landing' : getPageFromHash(window.location.hash)
+
+  useEffect(() => {
+    function handleHashChange() {
+      setHashRefreshKey((value) => value + 1)
+    }
+
+    window.addEventListener('hashchange', handleHashChange)
+    handleHashChange()
+
+    return () => window.removeEventListener('hashchange', handleHashChange)
+  }, [])
+
+  function navigateToPage(page: AppPageId) {
+    window.location.hash = page === 'builder' ? 'app' : ''
+  }
 
   function handleSalesFileSelect(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0]
@@ -1648,104 +1795,277 @@ function App() {
 
   return (
     <main className="app-shell">
-      <section className="hero-card">
-        <div className="hero-copy">
-          <span className="eyebrow">FA-Helper-App</span>
-          <h1>Upload Shareworks releases, sales, price, and FX CSVs to build the report</h1>
-          <p>
-            The releases file supplies vested shares, sell-to-cover shares, and held shares. The
-            long-share sales file supplies the later sales. The historical TEAM price file
-            supplies the max-price and closing-price lookups used by Schedule FA A3. The USD/INR
-            file supplies SBI `TT BUY` rates for INR conversions. Select an assessment year to
-            derive the matching financial-year and calendar-year windows used by each tab.
-          </p>
-        </div>
+      {currentPage === 'landing' ? (
+        <section className="landing-shell">
+          <section className="landing-hero">
+            <span className="eyebrow">FA-Helper-App</span>
+            <h1>Prepare foreign stock tax schedules with a guided workflow</h1>
+            <p>
+              This app helps you take Shareworks account reports, historical TEAM price data, and
+              USD/INR exchange rates and turn them into reviewable outputs for Overview, Schedule
+              FA A3, and Capital Gains.
+            </p>
 
-        <div className="controls-grid">
-          <label className="field">
-            <span>Broker type</span>
-            <select value={selectedBroker} onChange={handleBrokerChange}>
-              <option value="">Select a broker</option>
-              {BROKER_OPTIONS.map((option) => (
-                <option key={option.value} value={option.value}>
-                  {option.label}
-                </option>
-              ))}
-            </select>
-          </label>
+            <div className="landing-actions">
+              <button type="button" className="primary-button" onClick={() => navigateToPage('builder')}>
+                Open report builder
+              </button>
+              <p>GitHub Pages supports this design because the page switch uses a simple URL hash.</p>
+            </div>
+          </section>
 
-          <label className="field upload-field">
-            <span>USD to INR Rate CSV</span>
-            <input
-              type="file"
-              accept=".csv,text/csv"
-              onChange={handleExchangeRateFileSelect}
-            />
-          </label>
+          <section className="landing-grid">
+            <article className="info-card">
+              <span className="summary-label">Step 1</span>
+              <strong>Download the Shareworks account report CSVs</strong>
+              <p>
+                From Shareworks, download the account report CSV files that contain your `RSU
+                Releases` and `Sales - Long Shares` data.
+              </p>
+            </article>
+            <article className="info-card">
+              <span className="summary-label">Step 2</span>
+              <strong>Get historical TEAM price data</strong>
+              <p>
+                Download historical prices from Nasdaq for TEAM so the app can derive max-price and
+                closing-price values for Schedule FA.
+              </p>
+              <a
+                className="resource-link"
+                href="https://www.nasdaq.com/market-activity/stocks/team/historical?page=1&rows_per_page=10&timeline=y5"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open Nasdaq historical data
+              </a>
+            </article>
+            <article className="info-card">
+              <span className="summary-label">Step 3</span>
+              <strong>Get USD to INR reference rates</strong>
+              <p>
+                Use the SBI reference rate CSV so the app can apply `TT BUY` conversion rules for
+                Schedule FA and capital gains.
+              </p>
+              <a
+                className="resource-link"
+                href="https://github.com/sahilgupta/sbi-fx-ratekeeper/blob/main/csv_files/SBI_REFERENCE_RATES_USD.csv"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open SBI rate CSV source
+              </a>
+            </article>
+          </section>
 
-          {selectedBroker === 'shareworks' ? (
-            <>
-              <label className="field upload-field">
-                <span>RSU Releases CSV</span>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
+          <section className="hero-card landing-card">
+            <div className="setup-panel-header">
+              <div>
+                <h2>Setup checklist</h2>
+                <p>Keep these files ready before opening the builder.</p>
+              </div>
+            </div>
+
+            <div className="landing-grid">
+              <article className="summary-card">
+                <span className="summary-label">Required files</span>
+                <strong>4 CSV inputs</strong>
+                <p>RSU releases, long-share sales, historical TEAM prices, and SBI USD/INR rates.</p>
+              </article>
+              <article className="summary-card">
+                <span className="summary-label">Formatting help</span>
+                <strong>Use sample CSVs in `sample/`</strong>
+                <p>The repo includes synthetic sample files you can use to verify column format.</p>
+              </article>
+              <article className="summary-card">
+                <span className="summary-label">Year logic</span>
+                <strong>AY drives CY and FY</strong>
+                <p>Schedule FA uses calendar year. Capital gains uses financial year.</p>
+              </article>
+              <article className="summary-card">
+                <span className="summary-label">Privacy</span>
+                <strong>Browser-side processing</strong>
+                <p>Your uploaded CSV data stays in the app session while you review and export tables.</p>
+              </article>
+            </div>
+          </section>
+        </section>
+      ) : null}
+
+      {currentPage === 'builder' ? (
+        <>
+          <section className="builder-nav">
+            <button type="button" className="secondary-button" onClick={() => navigateToPage('landing')}>
+              Back to setup guide
+            </button>
+            <span className="badge subtle">Builder view</span>
+          </section>
+
+          <section className="hero-card">
+        <div className="hero-layout">
+          <div className="hero-copy">
+            <span className="eyebrow">FA-Helper-App</span>
+            <h1>Build cleaner ITR stock schedules with a guided setup flow</h1>
+            <p>
+              Upload your Shareworks releases, long-share sales, historical TEAM price file, and
+              SBI USD/INR rate file to generate the same report outputs with a clearer, easier
+              workflow. The business logic stays unchanged, but the experience is more guided from
+              file selection through report review.
+            </p>
+
+            <div className="hero-points">
+              <article className="info-card">
+                <span className="summary-label">Step 1</span>
+                <strong>Select broker and assessment year</strong>
+                <p>We derive both calendar-year and financial-year windows from the chosen AY.</p>
+              </article>
+              <article className="info-card">
+                <span className="summary-label">Step 2</span>
+                <strong>Upload the required CSV files</strong>
+                <p>FX rates are always needed. Shareworks-specific inputs unlock after broker selection.</p>
+              </article>
+              <article className="info-card">
+                <span className="summary-label">Step 3</span>
+                <strong>Generate and review exports</strong>
+                <p>Use the tabs and CSV download buttons to review Overview, Schedule FA, and Capital Gains.</p>
+              </article>
+            </div>
+          </div>
+
+          <aside className="setup-panel">
+            <div className="setup-panel-header">
+              <div>
+                <h2>Report Setup</h2>
+                <p>Choose the year, confirm the required files, and generate the report when ready.</p>
+              </div>
+              <span className={`status-pill ${hasGeneratedReport ? 'ready' : hasAllRequiredFiles ? 'pending' : 'locked'}`}>
+                {hasGeneratedReport
+                  ? 'Report ready'
+                  : hasAllRequiredFiles
+                    ? 'Ready to generate'
+                    : 'Setup in progress'}
+              </span>
+            </div>
+
+            <div className="controls-grid">
+              <label className="field">
+                <span>Broker type</span>
+                <select value={selectedBroker} onChange={handleBrokerChange}>
+                  <option value="">Select a broker</option>
+                  {BROKER_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="field">
+                <span>Assessment year</span>
+                <select
+                  value={selectedAssessmentYear}
+                  onChange={(event) => setSelectedAssessmentYear(event.target.value)}
+                >
+                  {assessmentYearOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
+
+            <div className="year-context-grid">
+              <article className="summary-card compact">
+                <span className="summary-label">Calendar year</span>
+                <strong>
+                  {formatUiDate(assessmentYearContext.calendarStart)} -{' '}
+                  {formatUiDate(assessmentYearContext.calendarEnd)}
+                </strong>
+              </article>
+              <article className="summary-card compact">
+                <span className="summary-label">Financial year</span>
+                <strong>
+                  {formatUiDate(assessmentYearContext.financialStart)} -{' '}
+                  {formatUiDate(assessmentYearContext.financialEnd)}
+                </strong>
+              </article>
+            </div>
+
+            <div className="upload-section">
+              <div className="section-copy">
+                <h3>Required uploads</h3>
+                <p>
+                  {isBrokerSelected
+                    ? `You have selected ${BROKER_OPTIONS[0].label}. Upload all four CSV files below.`
+                    : 'Start with the USD/INR rate file. Shareworks-specific inputs appear after choosing the broker.'}
+                </p>
+              </div>
+
+              <div className="upload-grid">
+                <UploadFieldCard
+                  label="USD to INR Rate CSV"
+                  helperText="Used for Schedule FA and capital gains INR conversion via SBI TT BUY rates."
+                  file={selectedExchangeRateFile}
+                  status={selectedExchangeRateFile ? 'ready' : 'pending'}
+                  statusLabel={selectedExchangeRateFile ? 'Selected' : 'Required'}
+                  onChange={handleExchangeRateFileSelect}
+                />
+                <UploadFieldCard
+                  label="RSU Releases CSV"
+                  helperText="Provides vesting, sell-to-cover, and held-share acquisition lots."
+                  file={selectedReleasesFile}
+                  status={selectedReleasesFile ? 'ready' : isBrokerSelected ? 'pending' : 'locked'}
+                  statusLabel={selectedReleasesFile ? 'Selected' : isBrokerSelected ? 'Required' : 'Locked'}
                   onChange={handleReleasesFileSelect}
                 />
-              </label>
-
-              <label className="field upload-field">
-                <span>Long Shares Sales CSV</span>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
+                <UploadFieldCard
+                  label="Long Shares Sales CSV"
+                  helperText="Provides later long-share disposals that get matched through FIFO."
+                  file={selectedSalesFile}
+                  status={selectedSalesFile ? 'ready' : isBrokerSelected ? 'pending' : 'locked'}
+                  statusLabel={selectedSalesFile ? 'Selected' : isBrokerSelected ? 'Required' : 'Locked'}
                   onChange={handleSalesFileSelect}
                 />
-              </label>
-
-              <label className="field upload-field">
-                <span>Historical TEAM Price</span>
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
+                <UploadFieldCard
+                  label="Historical TEAM Price"
+                  helperText="Used for max-price and closing-price lookups in Schedule FA A3."
+                  file={selectedHistoricalPriceFile}
+                  status={selectedHistoricalPriceFile ? 'ready' : isBrokerSelected ? 'pending' : 'locked'}
+                  statusLabel={
+                    selectedHistoricalPriceFile ? 'Selected' : isBrokerSelected ? 'Required' : 'Locked'
+                  }
                   onChange={handleHistoricalPriceFileSelect}
                 />
-              </label>
-            </>
-          ) : null}
+              </div>
+            </div>
 
-          <label className="field">
-            <span>Assessment year</span>
-            <select value={selectedAssessmentYear} onChange={(event) => setSelectedAssessmentYear(event.target.value)}>
-              {assessmentYearOptions.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
+            <div className="action-row">
+              <button
+                type="button"
+                className="primary-button"
+                disabled={!selectedBroker || !hasAllRequiredFiles || isGenerating}
+                onClick={() => void handleGenerateReport()}
+              >
+                {isGenerating ? 'Generating report...' : 'Generate report'}
+              </button>
+              <div className="action-summary">
+                <strong>
+                  Files ready: {uploadProgressCount}/{uploadProgressTotal}
+                </strong>
+                <p>
+                  Capital gains uses the <strong>financial year</strong>. Schedule FA A3 uses the{' '}
+                  <strong>calendar year</strong>.
+                </p>
+              </div>
+            </div>
 
-        <div className="action-row">
-          <button
-            type="button"
-            className="primary-button"
-            disabled={
-              !selectedBroker ||
-              !selectedSalesFile ||
-              !selectedReleasesFile ||
-              !selectedHistoricalPriceFile ||
-              !selectedExchangeRateFile ||
-              isGenerating
-            }
-            onClick={() => void handleGenerateReport()}
-          >
-            {isGenerating ? 'Generating report...' : 'Generate report'}
-          </button>
-          <p className="helper-copy">
-            Capital gains uses the <strong>financial year</strong>. Schedule FA A3 uses the{' '}
-            <strong>calendar year</strong>.
-          </p>
+            {!hasGeneratedReport ? (
+              <p className="status-message">
+                Select a broker, upload the required CSV files, adjust the assessment year if
+                needed, and then click `Generate report`.
+              </p>
+            ) : null}
+          </aside>
         </div>
 
         <div className="summary-grid">
@@ -1792,17 +2112,27 @@ function App() {
             </strong>
           </article>
         </div>
+          </section>
 
-        {!parsedSalesFile || !parsedReleasesFile || !parsedHistoricalPriceFile || !parsedExchangeRateFile ? (
-          <p className="status-message">
-            Select a broker, upload the USD/INR rate CSV, then upload the broker-specific files
-            that appear. After that, optionally adjust the assessment year and click `Generate report`.
-          </p>
-        ) : null}
-      </section>
-
-      {parsedSalesFile && parsedReleasesFile && parsedHistoricalPriceFile && parsedExchangeRateFile ? (
+          {hasGeneratedReport ? (
         <section className="results-stack">
+          <div className="results-topbar">
+            <div>
+              <h2>Generated Report</h2>
+              <p>
+                Review the current assessment year through tabs. Each table supports CSV export and
+                keeps the existing business calculations unchanged.
+              </p>
+            </div>
+            <div className="results-meta">
+              <span className="badge">{assessmentYearContext.assessmentYearLabel}</span>
+              <span className="badge subtle">
+                {formatUiDate(assessmentYearContext.financialStart)} -{' '}
+                {formatUiDate(assessmentYearContext.financialEnd)}
+              </span>
+            </div>
+          </div>
+
           <div className="tabs-row">
             <TabButton isActive={activeTab === 'overview'} label="Overview" onClick={() => setActiveTab('overview')} />
             <TabButton isActive={activeTab === 'faA3'} label="Schedule FA A3" onClick={() => setActiveTab('faA3')} />
@@ -1815,7 +2145,7 @@ function App() {
 
           {activeTab === 'overview' ? (
             <>
-              <div className="card-header">
+              <div className="section-banner">
                 <div>
                   <h2>Overview</h2>
                   <p>
@@ -1824,7 +2154,12 @@ function App() {
                     as of the calendar-year end.
                   </p>
                 </div>
-                <span className="badge">{capitalGainsMatches.length} FIFO matches</span>
+                <div className="results-meta">
+                  <span className="badge">{capitalGainsMatches.length} FIFO matches</span>
+                  <span className="badge subtle">
+                    {overviewHoldingsReport.openHoldings.length} open holdings
+                  </span>
+                </div>
               </div>
 
               <FifoMatchesTable
@@ -1839,29 +2174,17 @@ function App() {
                 sellToCoverRows={overviewSellToCoverRows}
               />
 
-              {overviewHoldingsReport.openHoldings.length > 0 ? (
-                <OpenHoldingsTable
-                  title="Still holding"
-                  subtitle="Open holdings remaining as of the selected calendar-year end."
-                  openHoldings={overviewHoldingsReport.openHoldings}
-                />
-              ) : (
-                <section className="transaction-card">
-                  <div className="card-header">
-                    <div>
-                      <h3>Still holding</h3>
-                      <p>No open holdings remain as of the selected calendar-year end.</p>
-                    </div>
-                    <span className="badge">0 rows</span>
-                  </div>
-                </section>
-              )}
+              <OpenHoldingsTable
+                title="Still holding"
+                subtitle="Open holdings remaining as of the selected calendar-year end."
+                openHoldings={overviewHoldingsReport.openHoldings}
+              />
             </>
           ) : null}
 
           {activeTab === 'faA3' ? (
             <>
-              <div className="card-header">
+              <div className="section-banner">
                 <div>
                   <h2>Schedule FA A3</h2>
                   <p>
@@ -1870,7 +2193,10 @@ function App() {
                     {formatUiDate(assessmentYearContext.calendarEnd)}.
                   </p>
                 </div>
-                <span className="badge">{scheduleFaRows.length} rows</span>
+                <div className="results-meta">
+                  <span className="badge">{scheduleFaRows.length} rows</span>
+                  <span className="badge subtle">Calendar-year holdings overlap</span>
+                </div>
               </div>
 
               <ScheduleFaTable rows={scheduleFaRows} />
@@ -1879,7 +2205,7 @@ function App() {
 
           {activeTab === 'capitalGains' ? (
             <>
-              <div className="card-header">
+              <div className="section-banner">
                 <div>
                   <h2>Capital Gains</h2>
                   <p>
@@ -1888,9 +2214,12 @@ function App() {
                     {formatUiDate(assessmentYearContext.financialEnd)}.
                   </p>
                 </div>
-                <span className="badge">
-                  {capitalGainsMatches.length + capitalGainsSellToCoverRows.length} rows
-                </span>
+                <div className="results-meta">
+                  <span className="badge">
+                    {capitalGainsMatches.length + capitalGainsSellToCoverRows.length} rows
+                  </span>
+                  <span className="badge subtle">Previous-month FX lookup</span>
+                </div>
               </div>
 
               <CapitalGainsTable
@@ -1907,9 +2236,9 @@ function App() {
             </>
           ) : null}
         </section>
-      ) : null}
+          ) : null}
 
-      <section className="log-card">
+          <section className="log-card">
         <div className="card-header">
           <div>
             <h2>Logs</h2>
@@ -1919,7 +2248,12 @@ function App() {
               Schedule FA also appear here.
             </p>
           </div>
-          <span className="badge">{displayLogs.length} entries</span>
+          <div className="results-meta">
+            <span className="badge">{displayLogs.length} entries</span>
+            <span className="badge subtle">{logCounts.info} info</span>
+            <span className="badge subtle">{logCounts.warning} warnings</span>
+            {logCounts.error > 0 ? <span className="badge subtle">{logCounts.error} errors</span> : null}
+          </div>
         </div>
 
         <div className="log-list">
@@ -1934,7 +2268,9 @@ function App() {
             <p className="empty-logs">Logs will appear here after you select a broker or upload a file.</p>
           )}
         </div>
-      </section>
+          </section>
+        </>
+      ) : null}
     </main>
   )
 }
