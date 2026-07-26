@@ -21,9 +21,11 @@ export function buildFifoReport(transactions: NormalizedTransaction[]): FifoRepo
   const sortedTransactions = [...transactions].sort(sortByDateAndRow)
   const acquisitionQueuesBySymbol = new Map<string, QueueLot[]>()
 
-  sortedTransactions
-    .filter((transaction) => transaction.transactionType === 'ACQUIRE')
-    .forEach((transaction) => {
+  const matchedLots: FifoMatchedLot[] = []
+  let unmatchedSellShares = 0
+
+  sortedTransactions.forEach((transaction) => {
+    if (transaction.transactionType === 'ACQUIRE') {
       const queue = acquisitionQueuesBySymbol.get(transaction.stockSymbol) ?? []
 
       queue.push({
@@ -32,16 +34,14 @@ export function buildFifoReport(transactions: NormalizedTransaction[]): FifoRepo
       })
 
       acquisitionQueuesBySymbol.set(transaction.stockSymbol, queue)
-    })
+      return
+    }
 
-  const sellTransactions = sortedTransactions.filter(
-    (transaction) => transaction.transactionType === 'SELL',
-  )
+    if (transaction.transactionType !== 'SELL') {
+      return
+    }
 
-  const matchedLots: FifoMatchedLot[] = []
-  let unmatchedSellShares = 0
-
-  sellTransactions.forEach((sellTransaction) => {
+    const sellTransaction = transaction
     const acquisitionQueue = acquisitionQueuesBySymbol.get(sellTransaction.stockSymbol) ?? []
     let sharesRemainingToMatch = sellTransaction.shares
 

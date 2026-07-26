@@ -386,4 +386,85 @@ describe('buildFifoReport', () => {
     ])
     expect(report.unmatchedSellShares).toBe(0)
   })
+
+  it('respects source-row order when buy and sell happen on the same day', () => {
+    const report = buildFifoReport([
+      {
+        id: 'older-buy',
+        broker: 'ibkr',
+        stockSymbol: 'GOOG',
+        transactionType: 'ACQUIRE',
+        grantName: 'GOOG',
+        grantNumber: 'GOOG',
+        withdrawalReferenceNumber: 'older-buy',
+        originatingReleaseReferenceNumber: 'older-buy',
+        lotNumber: '1',
+        tradeDate: '2025-03-13',
+        acquisitionDate: '2025-03-13',
+        shares: 1,
+        pricePerShareUsd: 100,
+        grossAmountUsd: 100,
+        feeUsd: 0,
+        sourceRowNumber: 1,
+      },
+      {
+        id: 'same-day-sell',
+        broker: 'ibkr',
+        stockSymbol: 'GOOG',
+        transactionType: 'SELL',
+        grantName: 'GOOG',
+        grantNumber: 'GOOG',
+        withdrawalReferenceNumber: 'same-day-sell',
+        originatingReleaseReferenceNumber: 'same-day-sell',
+        lotNumber: '2',
+        tradeDate: '2025-03-14',
+        acquisitionDate: '2025-03-14',
+        shares: 2,
+        pricePerShareUsd: 150,
+        grossAmountUsd: 300,
+        feeUsd: 0.5,
+        sourceRowNumber: 10,
+      },
+      {
+        id: 'same-day-buy',
+        broker: 'ibkr',
+        stockSymbol: 'GOOG',
+        transactionType: 'ACQUIRE',
+        grantName: 'GOOG',
+        grantNumber: 'GOOG',
+        withdrawalReferenceNumber: 'same-day-buy',
+        originatingReleaseReferenceNumber: 'same-day-buy',
+        lotNumber: '3',
+        tradeDate: '2025-03-14',
+        acquisitionDate: '2025-03-14',
+        shares: 2,
+        pricePerShareUsd: 120,
+        grossAmountUsd: 240,
+        feeUsd: 0,
+        sourceRowNumber: 11,
+      },
+    ])
+
+    expect(report.matchedLots).toEqual([
+      expect.objectContaining({
+        acquisitionTransactionId: 'older-buy',
+        sellTransactionId: 'same-day-sell',
+        sharesMatched: 1,
+      }),
+    ])
+    expect(report.unmatchedSellShares).toBe(1)
+    expect(report.openHoldings).toEqual([
+      {
+        id: 'same-day-buy-open',
+        stockSymbol: 'GOOG',
+        grantName: 'GOOG',
+        grantNumber: 'GOOG',
+        buyDate: '2025-03-14',
+        sourceRowNumber: 11,
+        sharesRemaining: 2,
+        buyPricePerShareUsd: 120,
+        costBasisUsd: 240,
+      },
+    ])
+  })
 })
