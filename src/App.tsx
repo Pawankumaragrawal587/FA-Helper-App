@@ -1,5 +1,9 @@
 import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import Papa from 'papaparse'
+import exchangeRateSampleCsv from '../sample/SBI_REFERENCE_RATES_USD.sample.csv?raw'
+import historicalPriceSampleCsv from '../sample/TEAM-HistoricalData.sample.csv?raw'
+import releasesSampleCsv from '../sample/RSU Releases.sample.csv?raw'
+import salesSampleCsv from '../sample/Sales - Long Shares.sample.csv?raw'
 
 import './App.css'
 import { buildFifoReport } from './shareworks/fifo'
@@ -33,7 +37,7 @@ const BROKER_OPTIONS: Array<{ value: BrokerType; label: string }> = [
 
 type LogLevel = 'info' | 'warning' | 'error'
 type ReportTabId = 'overview' | 'faA3' | 'capitalGains'
-type AppPageId = 'landing' | 'builder'
+type AppPageId = 'landing' | 'builder' | 'samples'
 
 interface CsvColumn<T> {
   header: string
@@ -122,6 +126,13 @@ interface AssessmentYearContext {
 }
 
 type UploadStatus = 'pending' | 'ready' | 'locked'
+
+interface SampleTableDefinition {
+  id: string
+  title: string
+  description: string
+  csvText: string
+}
 
 function formatUsd(value: number): string {
   return new Intl.NumberFormat('en-US', {
@@ -271,7 +282,27 @@ function buildAssessmentYearOptions(suggestedStartYear: number): string[] {
 }
 
 function getPageFromHash(hash: string): AppPageId {
-  return hash === '#app' ? 'builder' : 'landing'
+  if (hash === '#app') {
+    return 'builder'
+  }
+
+  if (hash === '#samples') {
+    return 'samples'
+  }
+
+  return 'landing'
+}
+
+function getSampleTablePreview(csvText: string): { headers: string[]; rows: string[][] } {
+  const parsed = Papa.parse<string[]>(csvText.trim(), { skipEmptyLines: true })
+  const rows = parsed.data.filter((row) => row.some((cell) => cell.trim() !== ''))
+  const normalizedRows = rows[0]?.length === 1 && (rows[1]?.length ?? 0) > 1 ? rows.slice(1) : rows
+  const [headers = [], ...dataRows] = normalizedRows
+
+  return {
+    headers,
+    rows: dataRows.slice(0, 2),
+  }
 }
 
 function UploadFieldCard({
@@ -321,6 +352,51 @@ function EmptyTableState({ title, description }: { title: string; description: s
       <strong>{title}</strong>
       <p>{description}</p>
     </div>
+  )
+}
+
+function SamplePreviewTable({
+  title,
+  description,
+  headers,
+  rows,
+}: {
+  title: string
+  description: string
+  headers: string[]
+  rows: string[][]
+}) {
+  return (
+    <section className="transaction-card">
+      <div className="card-header">
+        <div>
+          <h3>{title}</h3>
+          <p>{description}</p>
+        </div>
+        <span className="badge">{rows.length} sample rows</span>
+      </div>
+
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              {headers.map((header) => (
+                <th key={header}>{header || 'Column'}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, rowIndex) => (
+              <tr key={`${title}-${rowIndex}`}>
+                {headers.map((_, columnIndex) => (
+                  <td key={`${title}-${rowIndex}-${columnIndex}`}>{row[columnIndex] || '-'}</td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
   )
 }
 
@@ -1605,6 +1681,35 @@ function App() {
   const hasGeneratedReport = Boolean(
     parsedSalesFile && parsedReleasesFile && parsedHistoricalPriceFile && parsedExchangeRateFile,
   )
+  const sampleTables = useMemo<SampleTableDefinition[]>(
+    () => [
+      {
+        id: 'releases',
+        title: 'RSU Releases sample',
+        description: 'Example Shareworks release rows showing vest date, sold-to-cover, and held-share values.',
+        csvText: releasesSampleCsv,
+      },
+      {
+        id: 'sales',
+        title: 'Long Shares Sales sample',
+        description: 'Example Shareworks sale rows used for later FIFO matching against vested holdings.',
+        csvText: salesSampleCsv,
+      },
+      {
+        id: 'historical-prices',
+        title: 'Historical TEAM Price sample',
+        description: 'Example historical TEAM price rows used for max-price and closing-price lookups.',
+        csvText: historicalPriceSampleCsv,
+      },
+      {
+        id: 'exchange-rates',
+        title: 'USD to INR rate sample',
+        description: 'Example SBI reference-rate rows where the app uses the `TT BUY` column.',
+        csvText: exchangeRateSampleCsv,
+      },
+    ],
+    [],
+  )
   const uploadProgressCount = [
     selectedExchangeRateFile,
     isBrokerSelected ? selectedReleasesFile : true,
@@ -1634,7 +1739,7 @@ function App() {
   }, [])
 
   function navigateToPage(page: AppPageId) {
-    window.location.hash = page === 'builder' ? 'app' : ''
+    window.location.hash = page === 'builder' ? 'app' : page === 'samples' ? 'samples' : ''
   }
 
   function handleSalesFileSelect(event: ChangeEvent<HTMLInputElement>) {
@@ -1801,16 +1906,20 @@ function App() {
             <span className="eyebrow">FA-Helper-App</span>
             <h1>Prepare foreign stock tax schedules with a guided workflow</h1>
             <p>
-              This app helps you take Shareworks account reports, historical TEAM price data, and
-              USD/INR exchange rates and turn them into reviewable outputs for Overview, Schedule
-              FA A3, and Capital Gains.
+              Upload Shareworks account reports, historical TEAM price data, and USD/INR exchange
+              rates to generate reviewable outputs for Overview, Schedule FA A3, and Capital Gains.
             </p>
 
             <div className="landing-actions">
               <button type="button" className="primary-button" onClick={() => navigateToPage('builder')}>
                 Open report builder
               </button>
-              <p>GitHub Pages supports this design because the page switch uses a simple URL hash.</p>
+              <button type="button" className="secondary-button" onClick={() => navigateToPage('samples')}>
+                View sample formats
+              </button>
+              <p className="landing-note">
+                Review the checklist first, then continue to the builder when your files are ready.
+              </p>
             </div>
           </section>
 
@@ -1873,8 +1982,8 @@ function App() {
               </article>
               <article className="summary-card">
                 <span className="summary-label">Formatting help</span>
-                <strong>Use sample CSVs in `sample/`</strong>
-                <p>The repo includes synthetic sample files you can use to verify column format.</p>
+                <strong>Review sample file formats</strong>
+                <p>Open the sample page to see the expected layout before uploading your own files.</p>
               </article>
               <article className="summary-card">
                 <span className="summary-label">Year logic</span>
@@ -1891,47 +2000,95 @@ function App() {
         </section>
       ) : null}
 
+      {currentPage === 'samples' ? (
+        <>
+          <section className="builder-nav">
+            <button type="button" className="secondary-button" onClick={() => navigateToPage('landing')}>
+              Back to setup guide
+            </button>
+            <div className="results-meta">
+              <button type="button" className="secondary-button" onClick={() => navigateToPage('builder')}>
+                Open report builder
+              </button>
+              <span className="badge subtle">Sample formats</span>
+            </div>
+          </section>
+
+          <section className="hero-card">
+            <div className="builder-hero">
+              <div className="builder-hero-copy">
+                <span className="eyebrow">Sample CSVs</span>
+                <h1>Sample file formats</h1>
+                <p>
+                  These tables show example file layouts so you can verify the expected structure
+                  before uploading your own Shareworks, historical price, and FX files.
+                </p>
+              </div>
+
+              <div className="summary-grid">
+                <article className="summary-card">
+                  <span className="summary-label">Shareworks releases</span>
+                  <strong>RSU vesting and sell-to-cover</strong>
+                  <p>Use the account report export from Shareworks for this input.</p>
+                </article>
+                <article className="summary-card">
+                  <span className="summary-label">Shareworks sales</span>
+                  <strong>Long-share sale rows</strong>
+                  <p>These rows later get matched through FIFO in the builder.</p>
+                </article>
+                <article className="summary-card">
+                  <span className="summary-label">Historical prices</span>
+                  <strong>TEAM daily price data</strong>
+                  <p>Used for max-price and closing-price calculations in Schedule FA.</p>
+                </article>
+                <article className="summary-card">
+                  <span className="summary-label">FX rates</span>
+                  <strong>SBI TT BUY rates</strong>
+                  <p>Used for INR conversion in Schedule FA and Capital Gains.</p>
+                </article>
+              </div>
+            </div>
+          </section>
+
+          <section className="results-stack">
+            {sampleTables.map((table) => {
+              const preview = getSampleTablePreview(table.csvText)
+
+              return (
+                <SamplePreviewTable
+                  key={table.id}
+                  title={table.title}
+                  description={table.description}
+                  headers={preview.headers}
+                  rows={preview.rows}
+                />
+              )
+            })}
+          </section>
+        </>
+      ) : null}
+
       {currentPage === 'builder' ? (
         <>
           <section className="builder-nav">
             <button type="button" className="secondary-button" onClick={() => navigateToPage('landing')}>
               Back to setup guide
             </button>
-            <span className="badge subtle">Builder view</span>
+            <span className="badge subtle">Report builder</span>
           </section>
 
           <section className="hero-card">
-        <div className="hero-layout">
-          <div className="hero-copy">
-            <span className="eyebrow">FA-Helper-App</span>
-            <h1>Build cleaner ITR stock schedules with a guided setup flow</h1>
-            <p>
-              Upload your Shareworks releases, long-share sales, historical TEAM price file, and
-              SBI USD/INR rate file to generate the same report outputs with a clearer, easier
-              workflow. The business logic stays unchanged, but the experience is more guided from
-              file selection through report review.
-            </p>
+            <div className="builder-hero">
+              <div className="builder-hero-copy">
+                <span className="eyebrow">FA-Helper-App</span>
+                <h1>Report Builder</h1>
+                <p>
+                  Upload the required files, confirm the assessment-year window, and generate the
+                  schedules from one focused workspace.
+                </p>
+              </div>
 
-            <div className="hero-points">
-              <article className="info-card">
-                <span className="summary-label">Step 1</span>
-                <strong>Select broker and assessment year</strong>
-                <p>We derive both calendar-year and financial-year windows from the chosen AY.</p>
-              </article>
-              <article className="info-card">
-                <span className="summary-label">Step 2</span>
-                <strong>Upload the required CSV files</strong>
-                <p>FX rates are always needed. Shareworks-specific inputs unlock after broker selection.</p>
-              </article>
-              <article className="info-card">
-                <span className="summary-label">Step 3</span>
-                <strong>Generate and review exports</strong>
-                <p>Use the tabs and CSV download buttons to review Overview, Schedule FA, and Capital Gains.</p>
-              </article>
-            </div>
-          </div>
-
-          <aside className="setup-panel">
+              <section className="setup-panel full-width">
             <div className="setup-panel-header">
               <div>
                 <h2>Report Setup</h2>
@@ -2065,10 +2222,10 @@ function App() {
                 needed, and then click `Generate report`.
               </p>
             ) : null}
-          </aside>
-        </div>
+              </section>
+            </div>
 
-        <div className="summary-grid">
+            <div className="summary-grid">
           <article className="summary-card">
             <span className="summary-label">Assessment year</span>
             <strong>{assessmentYearContext.assessmentYearLabel}</strong>
@@ -2111,7 +2268,7 @@ function App() {
               {(parsedReleasesFile?.ignoredRowCount ?? 0) + (parsedSalesFile?.ignoredRowCount ?? 0)}
             </strong>
           </article>
-        </div>
+            </div>
           </section>
 
           {hasGeneratedReport ? (
@@ -2271,6 +2428,31 @@ function App() {
           </section>
         </>
       ) : null}
+
+      <section className="disclaimer-card">
+        <div className="card-header">
+          <div>
+            <h2>Disclaimer</h2>
+            <p>
+              This app is provided only as a helper for reviewing and organizing foreign stock data.
+              It should not be used as the sole basis for tax filing, tax advice, or legal
+              compliance.
+            </p>
+          </div>
+        </div>
+
+        <div className="disclaimer-copy">
+          <p>
+            By using this app, you acknowledge that the developers are not liable or responsible
+            for any filing decisions, tax positions, calculation errors, omissions, or losses that
+            may arise from its use.
+          </p>
+          <p>
+            Please consult a qualified Chartered Accountant (CA) or other licensed tax professional
+            before filing your tax return.
+          </p>
+        </div>
+      </section>
     </main>
   )
 }
