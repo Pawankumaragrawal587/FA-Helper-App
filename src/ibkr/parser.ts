@@ -1,6 +1,7 @@
 import Papa from 'papaparse'
 
 import type {
+  IbkrCashLedgerRecord,
   IbkrDividendRecord,
   IbkrTransactionRecord,
   IgnoredRowDetail,
@@ -10,6 +11,14 @@ import type {
 
 const SUPPORTED_TRADE_TRANSACTION_TYPES = new Set(['Buy', 'Sell'])
 const DIVIDEND_TRANSACTION_TYPE = 'Dividend'
+const CASH_AFFECTING_TRANSACTION_TYPES = new Set([
+  'Buy',
+  'Sell',
+  'Deposit',
+  'Withdrawal',
+  'Dividend',
+  'Foreign Tax Withholding',
+])
 
 function getCell(row: string[], index: number): string {
   return row[index]?.trim() ?? ''
@@ -96,6 +105,18 @@ function mapRowToIbkrDividendRecord(row: string[], sourceRowNumber: number): Ibk
   }
 }
 
+function mapRowToIbkrCashLedgerRecord(row: string[], sourceRowNumber: number): IbkrCashLedgerRecord {
+  return {
+    broker: 'ibkr',
+    stockSymbol: getCell(row, 6),
+    sourceRowNumber,
+    tradeDate: parseTradeDate(getCell(row, 2)),
+    description: getCell(row, 4),
+    transactionTypeLabel: getCell(row, 5),
+    netAmountUsd: parseNumber(getCell(row, 12), 'net amount'),
+  }
+}
+
 export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
   const result = Papa.parse<string[]>(csvText, {
     skipEmptyLines: true,
@@ -119,6 +140,7 @@ export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
 
   const parsedRows: IbkrTransactionRecord[] = []
   const dividendRows: IbkrDividendRecord[] = []
+  const cashLedgerRows: IbkrCashLedgerRecord[] = []
   const ignoredRows: IgnoredRowDetail[] = []
 
   rows.slice(headerIndex + 1).forEach((row, index) => {
@@ -130,6 +152,10 @@ export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
 
     const transactionTypeLabel = getCell(row, 5)
     const symbol = getCell(row, 6)
+
+    if (CASH_AFFECTING_TRANSACTION_TYPES.has(transactionTypeLabel)) {
+      cashLedgerRows.push(mapRowToIbkrCashLedgerRecord(row, sourceRowNumber))
+    }
 
     if (transactionTypeLabel === DIVIDEND_TRANSACTION_TYPE) {
       dividendRows.push(mapRowToIbkrDividendRecord(row, sourceRowNumber))
@@ -161,6 +187,7 @@ export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
     reportName: 'IBKR Transaction History',
     rows: parsedRows,
     dividendRows,
+    cashLedgerRows,
     uniqueSymbols,
     ignoredRowCount: ignoredRows.length,
     ignoredRows,

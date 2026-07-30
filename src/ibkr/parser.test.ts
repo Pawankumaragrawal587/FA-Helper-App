@@ -29,6 +29,16 @@ describe('parseIbkrTransactionsCsv', () => {
         netAmountUsd: 0.2,
       },
     ])
+    expect(parsed.cashLedgerRows.map((row) => ({
+      stockSymbol: row.stockSymbol,
+      transactionTypeLabel: row.transactionTypeLabel,
+      netAmountUsd: row.netAmountUsd,
+    }))).toEqual([
+      { stockSymbol: 'GOOG', transactionTypeLabel: 'Buy', netAmountUsd: -301.35 },
+      { stockSymbol: 'GOOG', transactionTypeLabel: 'Sell', netAmountUsd: 161.64 },
+      { stockSymbol: 'MSFT', transactionTypeLabel: 'Buy', netAmountUsd: -600.34 },
+      { stockSymbol: 'GOOG', transactionTypeLabel: 'Dividend', netAmountUsd: 0.2 },
+    ])
     expect(parsed.uniqueSymbols).toEqual(['GOOG', 'MSFT'])
     expect(parsed.ignoredRowCount).toBe(0)
     expect(parsed.rows[0]).toMatchObject({

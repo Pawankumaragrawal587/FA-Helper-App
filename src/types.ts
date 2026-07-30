@@ -88,10 +88,21 @@ export interface IbkrDividendRecord {
   netAmountUsd: number
 }
 
+export interface IbkrCashLedgerRecord {
+  broker: BrokerType
+  stockSymbol: string
+  sourceRowNumber: number
+  tradeDate: string
+  description: string
+  transactionTypeLabel: string
+  netAmountUsd: number
+}
+
 export interface ParsedIbkrFile {
   reportName: string
   rows: IbkrTransactionRecord[]
   dividendRows: IbkrDividendRecord[]
+  cashLedgerRows: IbkrCashLedgerRecord[]
   uniqueSymbols: string[]
   ignoredRowCount: number
   ignoredRows: IgnoredRowDetail[]

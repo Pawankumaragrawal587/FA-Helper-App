@@ -14,12 +14,14 @@ import {
   parseExchangeRateCsv,
 } from './common/exchangeRates'
 import { parseHistoricalPriceCsv } from './common/historicalPrices'
+import { buildScheduleFaA2Rows } from './common/scheduleFaA2'
 import { buildScheduleFaRows } from './common/scheduleFa'
 import { deriveIbkrTransactions, parseIbkrTransactionsCsv } from './ibkr/parser'
 import { parseShareworksCsv } from './shareworks/parser'
 import { deriveReleaseTransactions, parseShareworksReleasesCsv } from './shareworks/releases'
 import { deriveLongShareSaleTransactions } from './shareworks/transform'
 import type { DividendIncomeRow } from './common/dividendIncome'
+import type { ScheduleFaA2Row } from './common/scheduleFaA2'
 import type {
   BrokerType,
   ExchangeRateRow,
@@ -40,7 +42,7 @@ const BROKER_OPTIONS: Array<{ value: BrokerType; label: string }> = [
 ]
 
 type LogLevel = 'info' | 'warning' | 'error'
-type ReportTabId = 'overview' | 'faA3' | 'capitalGains' | 'dividendIncome'
+type ReportTabId = 'overview' | 'faA2' | 'faA3' | 'capitalGains' | 'dividendIncome'
 type AppPageId = 'landing' | 'builder' | 'samples'
 
 interface CsvColumn<T> {
@@ -742,7 +744,7 @@ function buildIbkrParseLogs(
   const logs: UiLogEntry[] = [
     createLog(
       'info',
-      `Loaded "${ibkrFileName}" with ${parsedIbkrFile.rows.length} IBKR buy/sell row(s) and ${parsedIbkrFile.dividendRows.length} dividend row(s) across ${parsedIbkrFile.uniqueSymbols.length} traded symbol(s).`,
+      `Loaded "${ibkrFileName}" with ${parsedIbkrFile.rows.length} IBKR buy/sell row(s), ${parsedIbkrFile.dividendRows.length} dividend row(s), and ${parsedIbkrFile.cashLedgerRows.length} cash ledger row(s) across ${parsedIbkrFile.uniqueSymbols.length} traded symbol(s).`,
     ),
     createLog(
       'info',
@@ -1307,6 +1309,115 @@ function OpenHoldingsTable({
   )
 }
 
+function ScheduleFaA2Table({
+  rows,
+}: {
+  rows: ScheduleFaA2Row[]
+}) {
+  const exportColumns: CsvColumn<ScheduleFaA2Row>[] = [
+    { header: 'Account Type', value: (row) => row.accountType },
+    { header: 'Calendar Start', value: (row) => row.calendarStart },
+    { header: 'Calendar End', value: (row) => row.calendarEnd },
+    { header: 'Max Value Date', value: (row) => row.maxValueDate },
+    { header: 'Max FX Rate', value: (row) => row.maxFxRate },
+    { header: 'Max Securities Value USD', value: (row) => row.maxSecuritiesValueUsd },
+    { header: 'Max Cash Balance USD', value: (row) => row.maxCashBalanceUsd },
+    { header: 'Max Account Value USD', value: (row) => row.maxAccountValueUsd },
+    { header: 'Max Account Value INR', value: (row) => row.maxAccountValueInr },
+    { header: 'Closing Value Date', value: (row) => row.closingValueDate },
+    { header: 'Closing FX Rate', value: (row) => row.closingFxRate },
+    { header: 'Closing FX Date', value: (row) => row.closingFxRateDate },
+    { header: 'Closing Securities Value USD', value: (row) => row.closingSecuritiesValueUsd },
+    { header: 'Closing Cash Balance USD', value: (row) => row.closingCashBalanceUsd },
+    { header: 'Closing Account Value USD', value: (row) => row.closingAccountValueUsd },
+    { header: 'Closing Account Value INR', value: (row) => row.closingAccountValueInr },
+  ]
+
+  return (
+    <section className="transaction-card">
+      <div className="card-header">
+        <div>
+          <h3>Schedule FA A2</h3>
+          <p>Calendar-year maximum and closing account values in INR.</p>
+        </div>
+        <div className="card-actions">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={rows.length === 0}
+            onClick={() => downloadCsvFile('schedule-fa-a2', exportColumns, rows)}
+          >
+            Download CSV
+          </button>
+          <span className="badge">{rows.length} rows</span>
+        </div>
+      </div>
+
+      {rows.length === 0 ? (
+        <EmptyTableState
+          title="No Schedule FA A2 values"
+          description="Upload historical prices and SBI reference rates to calculate A2 maximum and closing account values."
+        />
+      ) : (
+        <div className="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Account Type</th>
+                <th>Max Value Date</th>
+                <th>Max FX Rate</th>
+                <th>Max Securities USD</th>
+                <th>Max Cash USD</th>
+                <th>Max Account USD</th>
+                <th>Max Account INR</th>
+                <th>Closing Date</th>
+                <th>Closing FX Rate</th>
+                <th>Closing FX Date</th>
+                <th>Closing Securities USD</th>
+                <th>Closing Cash USD</th>
+                <th>Closing Account USD</th>
+                <th>Closing Account INR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((row) => (
+                <tr key={`${row.accountType}-${row.calendarStart}-${row.calendarEnd}`}>
+                  <td>{row.accountType}</td>
+                  <td>{row.maxValueDate ? formatUiDate(row.maxValueDate) : '-'}</td>
+                  <td>{row.maxFxRate !== null ? row.maxFxRate.toFixed(2) : '-'}</td>
+                  <td>
+                    {row.maxSecuritiesValueUsd !== null ? formatUsd(row.maxSecuritiesValueUsd) : '-'}
+                  </td>
+                  <td>{row.maxCashBalanceUsd !== null ? formatUsd(row.maxCashBalanceUsd) : '-'}</td>
+                  <td>{row.maxAccountValueUsd !== null ? formatUsd(row.maxAccountValueUsd) : '-'}</td>
+                  <td>{row.maxAccountValueInr !== null ? formatInr(row.maxAccountValueInr) : '-'}</td>
+                  <td>{formatUiDate(row.closingValueDate)}</td>
+                  <td>{row.closingFxRate !== null ? row.closingFxRate.toFixed(2) : '-'}</td>
+                  <td>{row.closingFxRateDate ? formatUiDate(row.closingFxRateDate) : '-'}</td>
+                  <td>
+                    {row.closingSecuritiesValueUsd !== null
+                      ? formatUsd(row.closingSecuritiesValueUsd)
+                      : '-'}
+                  </td>
+                  <td>
+                    {row.closingCashBalanceUsd !== null ? formatUsd(row.closingCashBalanceUsd) : '-'}
+                  </td>
+                  <td>
+                    {row.closingAccountValueUsd !== null ? formatUsd(row.closingAccountValueUsd) : '-'}
+                  </td>
+                  <td>
+                    {row.closingAccountValueInr !== null ? formatInr(row.closingAccountValueInr) : '-'}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  )
+}
+
 function ScheduleFaTable({
   rows,
 }: {
@@ -1610,6 +1721,25 @@ function App() {
         assessmentYearContext,
       ),
     [assessmentYearContext, parsedExchangeRateFile, parsedIbkrFile, selectedBroker],
+  )
+  const scheduleFaA2Rows = useMemo(
+    () =>
+      buildScheduleFaA2Rows({
+        transactions: allTransactions,
+        cashLedgerRows: selectedBroker === 'ibkr' ? (parsedIbkrFile?.cashLedgerRows ?? []) : [],
+        historicalPrices: parsedHistoricalPriceFile?.rows ?? [],
+        exchangeRates: parsedExchangeRateFile?.rows ?? [],
+        includeCash: selectedBroker === 'ibkr',
+        context: assessmentYearContext,
+      }),
+    [
+      allTransactions,
+      assessmentYearContext,
+      parsedExchangeRateFile,
+      parsedHistoricalPriceFile,
+      parsedIbkrFile,
+      selectedBroker,
+    ],
   )
 
   const lifetimeFifoReport = useMemo(
@@ -2658,6 +2788,7 @@ function App() {
 
           <div className="tabs-row">
             <TabButton isActive={activeTab === 'overview'} label="Overview" onClick={() => setActiveTab('overview')} />
+            <TabButton isActive={activeTab === 'faA2'} label="Schedule FA A2" onClick={() => setActiveTab('faA2')} />
             <TabButton isActive={activeTab === 'faA3'} label="Schedule FA A3" onClick={() => setActiveTab('faA3')} />
             <TabButton
               isActive={activeTab === 'capitalGains'}
@@ -2707,6 +2838,30 @@ function App() {
                 subtitle="Open holdings remaining as of the selected calendar-year end."
                 openHoldings={overviewHoldingsReport.openHoldings}
               />
+            </>
+          ) : null}
+
+          {activeTab === 'faA2' ? (
+            <>
+              <div className="section-banner">
+                <div>
+                  <h2>Schedule FA A2</h2>
+                  <p>
+                    This tab uses the calendar year for {assessmentYearContext.assessmentYearLabel}:{' '}
+                    {formatUiDate(assessmentYearContext.calendarStart)} to{' '}
+                    {formatUiDate(assessmentYearContext.calendarEnd)}. Max value is checked on SBI
+                    TT BUY rate dates; closing value is as of calendar-year end.
+                  </p>
+                </div>
+                <div className="results-meta">
+                  <span className="badge">{scheduleFaA2Rows.length} rows</span>
+                  <span className="badge subtle">
+                    {isIbkrSelected ? 'Securities plus cash' : 'Securities only'}
+                  </span>
+                </div>
+              </div>
+
+              <ScheduleFaA2Table rows={scheduleFaA2Rows} />
             </>
           ) : null}
 
