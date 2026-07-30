@@ -17,8 +17,8 @@ const CASH_AFFECTING_TRANSACTION_TYPES = new Set([
   'Deposit',
   'Withdrawal',
   'Dividend',
-  'Foreign Tax Withholding',
 ])
+const FOREIGN_TAX_WITHHOLDING_TRANSACTION_TYPE = 'Foreign Tax Withholding'
 
 function getCell(row: string[], index: number): string {
   return row[index]?.trim() ?? ''
@@ -117,6 +117,30 @@ function mapRowToIbkrCashLedgerRecord(row: string[], sourceRowNumber: number): I
   }
 }
 
+function getWithholdingGroupKey(row: IbkrCashLedgerRecord): string {
+  return [row.tradeDate, row.stockSymbol, row.description].join('||')
+}
+
+function getCashLedgerWithholdingRows(rows: IbkrCashLedgerRecord[]): IbkrCashLedgerRecord[] {
+  const rowsByGroup = new Map<string, IbkrCashLedgerRecord[]>()
+
+  rows.forEach((row) => {
+    const key = getWithholdingGroupKey(row)
+    rowsByGroup.set(key, [...(rowsByGroup.get(key) ?? []), row])
+  })
+
+  return [...rowsByGroup.values()].flatMap((groupRows) => {
+    const negativeRows = groupRows.filter((row) => row.netAmountUsd < 0)
+    const positiveRows = groupRows.filter((row) => row.netAmountUsd > 0)
+
+    if (negativeRows.length > 1 && positiveRows.length > 0) {
+      return [...negativeRows, ...positiveRows]
+    }
+
+    return negativeRows
+  })
+}
+
 export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
   const result = Papa.parse<string[]>(csvText, {
     skipEmptyLines: true,
@@ -141,6 +165,7 @@ export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
   const parsedRows: IbkrTransactionRecord[] = []
   const dividendRows: IbkrDividendRecord[] = []
   const cashLedgerRows: IbkrCashLedgerRecord[] = []
+  const withholdingRows: IbkrCashLedgerRecord[] = []
   const ignoredRows: IgnoredRowDetail[] = []
 
   rows.slice(headerIndex + 1).forEach((row, index) => {
@@ -155,6 +180,12 @@ export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
 
     if (CASH_AFFECTING_TRANSACTION_TYPES.has(transactionTypeLabel)) {
       cashLedgerRows.push(mapRowToIbkrCashLedgerRecord(row, sourceRowNumber))
+    }
+
+    if (
+      transactionTypeLabel === FOREIGN_TAX_WITHHOLDING_TRANSACTION_TYPE
+    ) {
+      withholdingRows.push(mapRowToIbkrCashLedgerRecord(row, sourceRowNumber))
     }
 
     if (transactionTypeLabel === DIVIDEND_TRANSACTION_TYPE) {
@@ -187,7 +218,10 @@ export function parseIbkrTransactionsCsv(csvText: string): ParsedIbkrFile {
     reportName: 'IBKR Transaction History',
     rows: parsedRows,
     dividendRows,
-    cashLedgerRows,
+    cashLedgerRows: [...cashLedgerRows, ...getCashLedgerWithholdingRows(withholdingRows)].sort(
+      (left, right) =>
+        left.tradeDate.localeCompare(right.tradeDate) || left.sourceRowNumber - right.sourceRowNumber,
+    ),
     uniqueSymbols,
     ignoredRowCount: ignoredRows.length,
     ignoredRows,

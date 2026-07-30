@@ -9,6 +9,8 @@ Transaction History,Data,2025-04-05,U1234567,ALPHABET INC-CL C,Buy,GOOG,2.0,150.
 Transaction History,Data,2025-04-11,U1234567,ALPHABET INC-CL C,Sell,GOOG,-1.0,162.0,USD,162.0,-0.36,161.64
 Transaction History,Data,2025-04-12,U1234567,MICROSOFT CORP,Buy,MSFT,1.5,400.0,USD,-600.0,-0.34,-600.34
 Transaction History,Data,2025-04-15,U1234567,GOOG(US02079K1079) Cash Dividend USD 0.20 per Share (Ordinary Dividend),Dividend,GOOG,-,-,-,0.20,-,0.20
+Transaction History,Data,2025-04-15,U1234567,GOOG(US02079K1079) Cash Dividend USD 0.20 per Share - US Tax,Foreign Tax Withholding,GOOG,-,-,-,-0.05,-,-0.05
+Transaction History,Data,2025-04-16,U1234567,GOOG(US02079K1079) Cash Dividend USD 0.20 per Share - US Tax Reversal,Foreign Tax Withholding,GOOG,-,-,-,0.05,-,0.05
 `
 
 describe('parseIbkrTransactionsCsv', () => {
@@ -38,9 +40,10 @@ describe('parseIbkrTransactionsCsv', () => {
       { stockSymbol: 'GOOG', transactionTypeLabel: 'Sell', netAmountUsd: 161.64 },
       { stockSymbol: 'MSFT', transactionTypeLabel: 'Buy', netAmountUsd: -600.34 },
       { stockSymbol: 'GOOG', transactionTypeLabel: 'Dividend', netAmountUsd: 0.2 },
+      { stockSymbol: 'GOOG', transactionTypeLabel: 'Foreign Tax Withholding', netAmountUsd: -0.05 },
     ])
     expect(parsed.uniqueSymbols).toEqual(['GOOG', 'MSFT'])
-    expect(parsed.ignoredRowCount).toBe(0)
+    expect(parsed.ignoredRowCount).toBe(2)
     expect(parsed.rows[0]).toMatchObject({
       broker: 'ibkr',
       stockSymbol: 'GOOG',
